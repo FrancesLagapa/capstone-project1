@@ -2,24 +2,23 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   DashboardOutlined,
-  UnorderedListOutlined,
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
-  ShoppingOutlined,
   CalendarOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  SettingOutlined,
   MoonOutlined,
+  PullRequestOutlined,
   SunOutlined,
-  DollarOutlined,
-  FileTextOutlined,
   EnvironmentOutlined,
-  BankOutlined,
-  InfoCircleOutlined,
+  BranchesOutlined,
   TruckOutlined,
-  EyeOutlined,
+  BoxPlotOutlined,
+  TransactionOutlined,
+  DatabaseOutlined,
+  MoneyCollectOutlined,
+  AuditOutlined,
 } from "@ant-design/icons";
 import logo from "../assets/logooos.jpg";
 
@@ -31,15 +30,15 @@ function MenuSidebar() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(false);
-  
-  // State to track which submenus are expanded (by key)
-  const [expandedKeys, setExpandedKeys] = useState(["branch", "reports"]); // Branch Management and Report Management open by default
+  const [expandedKeys, setExpandedKeys] = useState([
+    "products", 
+    "payroll", 
+    "branch"
+  ]);
 
-  // Get user info from localStorage
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const userRole = localStorage.getItem("role");
+  const userRole = localStorage.getItem("role") || "admin";
 
-  // Load saved states from localStorage
   useEffect(() => {
     const savedCollapsed = localStorage.getItem("sidebarCollapsed");
     if (savedCollapsed !== null) {
@@ -58,25 +57,22 @@ function MenuSidebar() {
     }
   }, []);
 
-  // Apply theme to document
   const applyTheme = (dark) => {
     if (dark) {
       document.documentElement.classList.add("dark");
-      document.body.style.backgroundColor = "#111827";
+      document.body.style.backgroundColor = "#0a0a1a";
     } else {
       document.documentElement.classList.remove("dark");
-      document.body.style.backgroundColor = "#f9fafb";
+      document.body.style.backgroundColor = "#f0f2f5";
     }
   };
 
-  // Save collapsed state to localStorage when it changes
   const toggleCollapsed = () => {
     const newCollapsed = !collapsed;
     setCollapsed(newCollapsed);
     localStorage.setItem("sidebarCollapsed", JSON.stringify(newCollapsed));
   };
 
-  // Toggle theme
   const toggleTheme = () => {
     const newDarkMode = !isDarkMode;
     setIsDarkMode(newDarkMode);
@@ -89,198 +85,215 @@ function MenuSidebar() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("role");
-    localStorage.removeItem("sidebarCollapsed");
-    navigate("/", { replace: true });
+    navigate("/login", { replace: true });
     setLogoutModalVisible(false);
   };
 
-  // ─── Menu Definition (matches the photos) ───
-  const menuItems = [
-    { 
-      key: "/dashboard", 
-      icon: <DashboardOutlined />, 
-      label: "Dashboard",
-      role: ["admin"]
-    },
-    { 
-      key: "/inventory", 
-      icon: <UnorderedListOutlined />, 
-      label: "Inventory Management",
-      role: ["admin"]
-    },
-    { 
-      key: "/attendance", 
-      icon: <CalendarOutlined />, 
-      label: "Attendance",
-      role: ["admin"]
-    },
-    { 
-      key: "branch",   // this is a group, not a route
-      icon: <BankOutlined />, 
-      label: "Branch Management",
-      role: ["admin"],
-      children: [
-        { 
-          key: "/branch-map", 
-          icon: <EnvironmentOutlined />, 
-          label: "Pinpoint (Map)",
-          role: ["admin"]
-        },
-        { 
-          key: "/branch-info", 
-          icon: <InfoCircleOutlined />, 
-          label: "Branch Information",
-          role: ["admin"]
-        },
-        { 
-          key: "/branch-assign", 
-          icon: <UserOutlined />, 
-          label: "Branch Assign",
-          role: ["admin"]
-        },
-        { 
-          key: "/branch-supply", 
-          icon: <FileTextOutlined />, 
-          label: "Branch Supply And Cash Advance Request",
-          role: ["admin"]
-        },
-        { 
-          key: "/pullout-admin", 
-          icon: <TruckOutlined />, 
-          label: "PullOut Admin",
-          role: ["admin"]
-        },
-      ]
-    },
-    { 
-      key: "/staff", 
-      icon: <FileTextOutlined />, 
-      label: "Staff Management",
-      role: ["admin"]
-    },
-    { 
-      key: "/staff-monitoring", 
-      icon: <EyeOutlined />, 
-      label: "Staff Monitoring",
-      role: ["admin"]
-    },
-    { 
-      key: "/payroll", 
-      icon: <DollarOutlined />, 
-      label: "Payroll Management",
-      role: ["admin"]
-    },
-    { 
-      key: "reports",
-      icon: <FileTextOutlined />, 
-      label: "Report Management",
-      role: ["admin"],
-      children: [
-        { 
-          key: "/reports/sales", 
-          icon: <DollarOutlined />, 
-          label: "Sales Report",
-          role: ["admin"]
-        },
-        { 
-          key: "/reports/inventory", 
-          icon: <UnorderedListOutlined />, 
-          label: "Inventory Report",
-          role: ["admin"]
-        },
-        { 
-          key: "/reports/attendance", 
-          icon: <CalendarOutlined />, 
-          label: "Attendance Report",
-          role: ["admin"]
-        },
-        { 
-          key: "/reports/payroll", 
-          icon: <DollarOutlined />, 
-          label: "Payroll Report",
-          role: ["admin"]
-        },
-        { 
-          key: "/reports/branch", 
-          icon: <BankOutlined />, 
-          label: "Branch Report",
-          role: ["admin"]
-        },
-        { 
-          key: "/reports/pullout", 
-          icon: <TruckOutlined />, 
-          label: "Pull-Out Report",
-          role: ["admin"]
-        },
-      ]
-    },
-  ];
-
-  // Filter menu items based on user role (keep only admin items for now)
-  const filteredMenuItems = menuItems.filter(item => 
-    item.role.includes(userRole || "staff")
-  );
-
-  // Helper to check if a menu item (or its children) is active
-  const isActive = (item) => {
-    if (item.key === location.pathname) return true;
-    if (item.children) {
-      return item.children.some(child => child.key === location.pathname);
-    }
-    return false;
-  };
-
-  // Toggle submenu expansion
   const toggleExpand = (key) => {
     setExpandedKeys(prev => {
-      const newKeys = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      const newKeys = prev.includes(key) 
+        ? prev.filter(k => k !== key) 
+        : [...prev, key];
       localStorage.setItem("expandedKeys", JSON.stringify(newKeys));
       return newKeys;
     });
   };
 
-  // ─── Render a single menu item (recursive for children) ───
+  const isActive = (path) => {
+    return location.pathname === path;
+  };
+
+  const isChildActive = (children) => {
+    if (!children) return false;
+    return children.some(child => child.path === location.pathname);
+  };
+
+  // ─── Updated Menu Structure ───
+  const menuItems = [
+    {
+      key: "dashboard",
+      icon: <DashboardOutlined />,
+      label: "Dashboard",
+      path: "/dashboard",
+      role: ["admin"],
+    },
+    {
+      key: "products",
+      icon: <BoxPlotOutlined />,
+      label: "Product & Inventory",
+      role: ["admin"],
+      children: [
+        { 
+          key: "products-stock", 
+          icon: <DatabaseOutlined />, 
+          label: "Products & Stock Levels",
+          path: "/inventory",
+          role: ["admin"]
+        },
+        { 
+          key: "RequestAdmin", 
+          icon: <TruckOutlined />, 
+          label: "Request Supply & Cash Advance",
+          path: "/RequestAdmin",
+          role: ["admin"]
+        },
+        { 
+          key: "pullout-admin", 
+          icon: <PullRequestOutlined />, 
+          label: "Pull-out Items",
+          path: "/pullout-admin",
+          role: ["admin"]
+        },
+      ]
+    },
+    {
+      key: "sales",
+      icon: <TransactionOutlined />,
+      label: "Sales Transactions",
+      path: "/sales",
+      role: ["admin"],
+      children: [
+        { 
+          key: "staff-monitoring", 
+          icon: <TransactionOutlined />, 
+          label: "Sales",
+          path: "/staff-monitoring",
+          role: ["admin"]
+        },
+      ]
+    },
+    {
+      key: "customers",
+      icon: <TeamOutlined />,
+      label: "Customer Data",
+      path: "/customers",
+      role: ["admin"],
+    },
+    {
+      key: "reservations",
+      icon: <CalendarOutlined />,
+      label: "Reservation Data",
+      path: "/reservations",
+      role: ["admin"],
+    },
+    {
+      key: "staff",
+      icon: <MoneyCollectOutlined />,
+      label: "Staff Data",
+      role: ["admin"],
+      children: [
+        {
+      key: "staff",
+      icon: <UserOutlined />,
+      label: "Staff Management",
+      path: "/staff",
+      role: ["admin"]
+        },
+      ]
+    },
+    {
+      key: "payroll",
+      icon: <MoneyCollectOutlined />,
+      label: "Payroll Data",
+      role: ["admin"],
+      children: [
+        { 
+          key: "payroll-info", 
+          icon: <DatabaseOutlined />, 
+          label: "Payroll Information",
+          path: "/payroll",
+          role: ["admin"]
+        },
+      ]
+    },
+    {
+      key: "delivery",
+      icon: <TruckOutlined />,
+      label: "Delivery Data",
+      path: "/delivery",
+      role: ["admin"],
+    },
+    {
+      key: "branch",
+      icon: <BranchesOutlined />,
+      label: "Branch Data",
+      role: ["admin"],
+      children: [
+        { 
+          key: "branch-map", 
+          icon: <EnvironmentOutlined />, 
+          label: "Branch Information",
+          path: "/branch-map",
+          role: ["admin"]
+        },
+        { 
+          key: "staff-management", 
+          icon: <UserOutlined />, 
+          label: "Staff Management",
+          path: "/staff",
+          role: ["admin"]
+        },
+        { 
+          key: "branch-assignments", 
+          icon: <AuditOutlined />, 
+          label: "Branch Assignments",
+          path: "/branch-assign", // Changed to match the route
+          role: ["admin"]
+        },
+      ]
+    }
+  ];
+
+  // Filter menu items based on user role
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!item.role) return true;
+    return item.role.includes(userRole);
+  });
+
+  // Filter children based on user role
+  const filterChildren = (children) => {
+    if (!children) return [];
+    return children.filter(child => {
+      if (!child.role) return true;
+      return child.role.includes(userRole);
+    });
+  };
+
+  // ─── Render Menu ───
   const renderMenuItem = (item, depth = 0) => {
-    const hasChildren = item.children && item.children.length > 0;
+    const children = filterChildren(item.children);
+    const hasChildren = children.length > 0;
     const isExpanded = expandedKeys.includes(item.key);
-    const active = isActive(item);
+    const isItemActive = isChildActive(children) || (item.path && isActive(item.path));
     const paddingLeft = collapsed ? 0 : (depth * 16 + 12);
 
-    // For parent items with children
     if (hasChildren) {
       return (
         <div key={item.key} className="mb-1">
           <button
-            onClick={() => {
-              if (!collapsed) {
-                toggleExpand(item.key);
-              } else {
-                // When collapsed, clicking on a parent navigates to the first child? 
-                // Or we can do nothing. We'll just toggle the expand state to show submenu? 
-                // But submenu won't be visible when collapsed. So maybe just toggle expansion state 
-                // but keep the parent button as a toggle only.
-                toggleExpand(item.key);
-              }
-            }}
+            onClick={() => toggleExpand(item.key)}
             className={`
-              w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200
+              w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
               ${collapsed ? "justify-center" : "justify-start"}
-              ${active 
+              ${isItemActive 
                 ? isDarkMode 
-                  ? "bg-blue-600 text-white" 
+                  ? "bg-blue-600/20 text-blue-400" 
                   : "bg-blue-50 text-blue-600"
                 : isDarkMode
-                  ? "text-gray-300 hover:bg-gray-700 hover:text-white"
+                  ? "text-gray-300 hover:bg-gray-700/50 hover:text-white"
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
               }
+              ${!collapsed && "group"}
             `}
             style={{ paddingLeft: collapsed ? undefined : paddingLeft }}
             title={collapsed ? item.label : ""}
           >
-            <span className="text-lg">{item.icon}</span>
+            <span className={`text-lg flex-shrink-0 ${isItemActive ? "text-blue-500" : ""}`}>
+              {item.icon}
+            </span>
             {!collapsed && (
               <>
-                <span className="text-sm flex-1 text-left">{item.label}</span>
+                <span className="text-sm flex-1 text-left font-medium">{item.label}</span>
                 <span className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -290,9 +303,9 @@ function MenuSidebar() {
             )}
           </button>
           {!collapsed && (
-            <div className={`overflow-hidden transition-all duration-300 ${isExpanded ? 'max-h-96' : 'max-h-0'}`}>
-              <div className="ml-4 mt-1 space-y-1">
-                {item.children.map(child => renderMenuItem(child, depth + 1))}
+            <div className={`overflow-hidden transition-all duration-300 ${isExpanded ? 'max-h-[2000px]' : 'max-h-0'}`}>
+              <div className="ml-4 mt-1 space-y-0.5 border-l-2 border-gray-200 dark:border-gray-700/50 pl-3">
+                {children.map(child => renderMenuItem(child, depth + 1))}
               </div>
             </div>
           )}
@@ -304,49 +317,52 @@ function MenuSidebar() {
     return (
       <button
         key={item.key}
-        onClick={() => navigate(item.key)}
+        onClick={() => item.path && navigate(item.path)}
         className={`
-          w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200
+          w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200
           ${collapsed ? "justify-center" : "justify-start"}
-          ${active 
+          ${item.path && isActive(item.path)
             ? isDarkMode 
-              ? "bg-blue-600 text-white" 
-              : "bg-blue-50 text-blue-600"
+              ? "bg-blue-600/30 text-blue-400" 
+              : "bg-blue-100 text-blue-700"
             : isDarkMode
-              ? "text-gray-300 hover:bg-gray-700 hover:text-white"
-              : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              ? "text-gray-400 hover:bg-gray-700/50 hover:text-white"
+              : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
           }
         `}
         style={{ paddingLeft: collapsed ? undefined : paddingLeft }}
         title={collapsed ? item.label : ""}
       >
-        <span className="text-lg">{item.icon}</span>
+        <span className="text-base flex-shrink-0">{item.icon}</span>
         {!collapsed && <span className="text-sm">{item.label}</span>}
+        {!collapsed && item.path && isActive(item.path) && (
+          <span className="ml-auto w-1.5 h-8 rounded-full bg-blue-500"></span>
+        )}
       </button>
     );
   };
 
-  // ─── Sidebar styling ───
+  // ─── Sidebar Styles ───
   const sidebarClasses = isDarkMode
-    ? "bg-gradient-to-b from-gray-900 to-gray-800 text-white"
+    ? "bg-gradient-to-b from-[#0a0a1a] to-[#141428] text-white"
     : "bg-gradient-to-b from-white to-gray-50 text-gray-800 border-r border-gray-200";
 
   const logoTextClasses = isDarkMode ? "text-white" : "text-gray-800";
   const logoSubtextClasses = isDarkMode ? "text-gray-400" : "text-gray-500";
-  const borderClasses = isDarkMode ? "border-gray-700" : "border-gray-200";
+  const borderClasses = isDarkMode ? "border-gray-700/50" : "border-gray-200";
 
   return (
     <>
       <aside 
         className={`${
-          collapsed ? "w-20" : "w-64"
-        } ${sidebarClasses} flex flex-col transition-all duration-300 ease-in-out shadow-xl overflow-hidden min-h-screen relative`}
+          collapsed ? "w-20" : "w-72"
+        } ${sidebarClasses} flex flex-col transition-all duration-300 ease-in-out shadow-2xl overflow-hidden min-h-screen relative`}
       >
         {/* Toggle Button */}
         <button
           onClick={toggleCollapsed}
           className={`absolute -right-3 top-8 z-50 ${
-            isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-white hover:bg-gray-100 border border-gray-200"
+            isDarkMode ? "bg-gray-800 hover:bg-gray-700" : "bg-white hover:bg-gray-100 border border-gray-200"
           } rounded-full p-1.5 shadow-lg transition-all duration-200`}
         >
           {collapsed ? 
@@ -365,7 +381,7 @@ function MenuSidebar() {
           <div className="relative">
             <div className={`${
               collapsed ? "w-12 h-12" : "w-16 h-16"
-            } rounded-full flex items-center justify-center shadow-lg transition-all duration-300 overflow-hidden bg-gradient-to-r from-blue-500 to-indigo-600`}>
+            } rounded-full flex items-center justify-center shadow-lg transition-all duration-300 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600`}>
               {!logoError ? (
                 <img 
                   src={logo} 
@@ -385,24 +401,24 @@ function MenuSidebar() {
           </div>
           {!collapsed && (
             <div className="mt-3 text-center">
-              <h3 className={`font-bold text-sm tracking-wide ${logoTextClasses}`}>NEW MOON</h3>
+              <h3 className={`font-bold text-sm tracking-wider ${logoTextClasses}`}>NEW MOON</h3>
               <p className={`text-xs ${logoSubtextClasses}`}>LECHON MANOK</p>
             </div>
           )}
         </div>
 
-        {/* User Info (when expanded) */}
+        {/* User Info */}
         {!collapsed && user && (
           <div className={`px-4 py-4 border-b ${borderClasses} relative`}>
             <button
               onClick={() => setOpenDropdown(!openDropdown)}
-              className="w-full flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-gray-700 p-2 rounded-lg transition-colors"
+              className="w-full flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-gray-700/50 p-2 rounded-xl transition-colors"
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center text-white">
-                <UserOutlined />
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-lg">
+                <UserOutlined className="text-lg" />
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className={`text-sm font-medium truncate ${isDarkMode ? "text-white" : "text-gray-800"}`}>
+                <p className={`text-sm font-semibold truncate ${isDarkMode ? "text-white" : "text-gray-800"}`}>
                   {user.name || user.username || "User"}
                 </p>
                 <p className={`text-xs capitalize ${logoSubtextClasses}`}>
@@ -418,7 +434,7 @@ function MenuSidebar() {
                   className="fixed inset-0 z-40" 
                   onClick={() => setOpenDropdown(false)}
                 />
-                <div className={`absolute left-4 right-4 top-full mt-2 rounded-lg shadow-lg z-50 ${
+                <div className={`absolute left-4 right-4 top-full mt-2 rounded-xl shadow-2xl z-50 overflow-hidden ${
                   isDarkMode ? "bg-gray-800" : "bg-white border border-gray-200"
                 }`}>
                   <button
@@ -426,7 +442,7 @@ function MenuSidebar() {
                       setLogoutModalVisible(true);
                       setOpenDropdown(false);
                     }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg`}
+                    className={`w-full text-left px-4 py-3 text-sm transition-colors flex items-center gap-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20`}
                   >
                     <LogoutOutlined />
                     <span>Logout</span>
@@ -438,17 +454,17 @@ function MenuSidebar() {
         )}
 
         {/* Menu Section */}
-        <div className="flex-1 mt-4 px-2 overflow-y-auto">
-          <nav className="space-y-1">
+        <div className="flex-1 mt-4 px-3 overflow-y-auto">
+          <nav className="space-y-0.5">
             {filteredMenuItems.map(item => renderMenuItem(item))}
           </nav>
         </div>
 
         {/* Bottom Actions */}
-        <div className={`border-t ${borderClasses} pt-4 pb-6 px-2 space-y-3`}>
+        <div className={`border-t ${borderClasses} pt-4 pb-6 px-3 space-y-3`}>
           {/* Theme Toggle */}
           {!collapsed ? (
-            <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${isDarkMode ? "bg-gray-800" : "bg-gray-100"}`}>
+            <div className={`flex items-center justify-between px-3 py-2 rounded-xl ${isDarkMode ? "bg-gray-800/50" : "bg-gray-100"}`}>
               <div className="flex items-center gap-2">
                 {isDarkMode ? (
                   <MoonOutlined className="text-blue-400 text-sm" />
@@ -475,9 +491,9 @@ function MenuSidebar() {
           ) : (
             <button
               onClick={toggleTheme}
-              className={`w-full flex justify-center items-center p-2 rounded-lg transition-colors ${
+              className={`w-full flex justify-center items-center p-2 rounded-xl transition-colors ${
                 isDarkMode 
-                  ? "text-yellow-400 hover:bg-gray-700" 
+                  ? "text-yellow-400 hover:bg-gray-700/50" 
                   : "text-indigo-600 hover:bg-gray-100"
               }`}
               title={isDarkMode ? "Light Mode" : "Dark Mode"}
@@ -486,13 +502,13 @@ function MenuSidebar() {
             </button>
           )}
 
-          <div className={`h-px my-2 ${borderClasses}`} />
+          <div className={`h-px ${borderClasses}`} />
           
           {/* Logout Button */}
           {collapsed ? (
             <button
               onClick={() => setLogoutModalVisible(true)}
-              className="w-full flex justify-center items-center p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              className="w-full flex justify-center items-center p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
               title="Logout"
             >
               <LogoutOutlined className="text-lg" />
@@ -500,10 +516,10 @@ function MenuSidebar() {
           ) : (
             <button
               onClick={() => setLogoutModalVisible(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-red-600 bg-red-500 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/30 transition-colors shadow-sm"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors shadow-sm"
             >
               <LogoutOutlined />
-              <span>Logout</span>
+              <span className="font-medium">Logout</span>
             </button>
           )}
         </div>
@@ -513,29 +529,33 @@ function MenuSidebar() {
       {logoutModalVisible && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div 
-            className="absolute inset-0 backdrop-blur-sm transition-opacity duration-200"
+            className="absolute inset-0 backdrop-blur-sm bg-black/30 transition-opacity duration-200"
             onClick={() => setLogoutModalVisible(false)}
           />
-          <div className={`relative rounded-lg shadow-xl max-w-md w-full mx-4 ${
+          <div className={`relative rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden ${
             isDarkMode ? "bg-gray-800" : "bg-white"
           }`}>
             <div className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <LogoutOutlined className="text-red-500 text-xl" />
-                <h3 className={`text-lg font-semibold ${isDarkMode ? "text-white" : "text-gray-900"}`}>
-                  Confirm Logout
-                </h3>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
+                  <LogoutOutlined className="text-red-500 text-2xl" />
+                </div>
+                <div>
+                  <h3 className={`text-lg font-semibold ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                    Confirm Logout
+                  </h3>
+                  <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                    Are you sure you want to logout?
+                  </p>
+                </div>
               </div>
-              <p className={`${isDarkMode ? "text-gray-300" : "text-gray-700"}`}>
-                Are you sure you want to logout?
-              </p>
-              <p className={`text-sm mt-2 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+              <p className={`text-sm mt-2 ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
                 You will need to login again to access your account.
               </p>
               <div className="flex justify-end gap-3 mt-6">
                 <button
                   onClick={() => setLogoutModalVisible(false)}
-                  className={`px-4 py-2 rounded-lg transition-colors ${
+                  className={`px-4 py-2 rounded-xl transition-colors ${
                     isDarkMode 
                       ? "bg-gray-700 hover:bg-gray-600 text-white" 
                       : "bg-gray-100 hover:bg-gray-200 text-gray-700"
@@ -545,7 +565,7 @@ function MenuSidebar() {
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors shadow-lg"
                 >
                   Yes, Logout
                 </button>

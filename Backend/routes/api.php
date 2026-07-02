@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\LoginController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\StaffController;
@@ -15,9 +16,14 @@ use App\Http\Controllers\Api\SalaryAdvanceController;
 use App\Http\Controllers\Api\SupplyRequestController;
 use App\Http\Controllers\Api\PullOutController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\RegisterController;
 
 // PUBLIC ROUTES
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/admin/login', [LoginController::class, 'login']);
+Route::post('/register', [RegisterController::class, 'register']);
+Route::post('/check-username', [RegisterController::class, 'checkUsername']);
+Route::post('/check-email', [RegisterController::class, 'checkEmail']);
 
 // PROTECTED ROUTES
 Route::middleware('auth:sanctum')->group(function () {
@@ -44,7 +50,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('staff', StaffController::class);
     
     // Staff Assignments - Add these routes
-Route::apiResource('staff-assignments', StaffAssignmentController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+Route::get('staff-assignments', [StaffAssignmentController::class, 'index']);
+Route::post('staff-assignments', [StaffAssignmentController::class, 'store']);
+Route::get('staff-assignments/{staff_assignment}', [StaffAssignmentController::class, 'show']);
+Route::put('staff-assignments/{staff_assignment}', [StaffAssignmentController::class, 'update']);
+Route::patch('staff-assignments/{staff_assignment}', [StaffAssignmentController::class, 'update']); // optional, for PATCH support
+Route::delete('staff-assignments/{staff_assignment}', [StaffAssignmentController::class, 'destroy']);
 Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'getUserAssignment']);
     
     // Staff Deductions and Incentives
@@ -64,8 +75,8 @@ Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'get
     Route::post('/cash-advances/{id}/reject', [SalaryAdvanceController::class, 'reject']);
     
     // Stock Requests
-    Route::get('/supply-requests', [SupplyRequestController::class, 'index']);
-    Route::get('/supply-requests/all', [SupplyRequestController::class, 'all']);
+    Route::get('/supply-requests', [SupplyRequestController::class, 'supplyRequest']);
+    Route::get('/supply-requests/all', [SupplyRequestController::class, 'getSupply']);
     Route::post('/supply-requests', [SupplyRequestController::class, 'store']);
     Route::get('/supply-requests/user/branches', [SupplyRequestController::class, 'getUserBranches']);
     Route::get('/supply-requests/statistics', [SupplyRequestController::class, 'statistics']);
@@ -89,7 +100,7 @@ Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'get
     Route::post('/face/reset', [FaceEnrollmentController::class, 'reset']);
 
     // Attendance
-    Route::get('/attendance', [AttendanceController::class, 'index']);
+    Route::get('/attendance', [AttendanceController::class, 'getAttendance']);
     Route::post('/attendance/time-in', [AttendanceController::class, 'timeIn']);
     Route::put('/attendance/{id}/time-out', [AttendanceController::class, 'timeOut']);
     

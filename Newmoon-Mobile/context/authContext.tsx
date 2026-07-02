@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { saveToken, getToken, deleteToken } from '../lib/authStorage';
 import {
-  saveUser,
   getUser,
   deleteUser,
   saveOfflineCredentials,
@@ -12,6 +11,7 @@ import { hasNetworkConnection, isNetworkError, subscribeToNetwork } from '../lib
 import api from '../lib/api';
 import { cacheStaffContextAfterLogin } from '../lib/staffContext';
 import { refreshAuthToken } from '../lib/authRefresh';
+import { normalizeUserType, type MobileUserType } from '../lib/userType';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -24,9 +24,19 @@ interface AuthContextType {
     user?: any;
     error?: string;
     offline?: boolean;
+    userType?: MobileUserType;
+  }>;
+  register: (formData: Record<string, string>) => Promise<{
+    success: boolean;
+    token?: string;
+    user?: any;
+    error?: string;
+    errors?: Record<string, string>;
+    userType?: MobileUserType;
   }>;
   signOut: () => Promise<void>;
   user: any;
+  userType: MobileUserType | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,11 +59,46 @@ async function loginOffline(username: string, password: string) {
     };
   }
 
+  // Get stored user type from secure storage
+  let storedUserType =
+    normalizeUserType(String(storedUser?.userType || storedUser?.role || '')) || 'staff';
+
   return {
     success: true as const,
     user: storedUser,
     offline: true,
+    userType: storedUserType,
   };
+}
+
+async function persistAuthSession(
+  token: string,
+  loggedInUser: any,
+  resolvedUserType: MobileUserType,
+  username?: string,
+  password?: string
+) {
+  await saveToken(token);
+
+  const userWithType = {
+    ...loggedInUser,
+    role: loggedInUser?.role,
+    userType: resolvedUserType,
+  };
+
+  const cachedUser = await cacheStaffContextAfterLogin(userWithType);
+
+  if (username && password) {
+    await saveOfflineCredentials(
+      username,
+      password,
+      cachedUser?.firstname,
+      cachedUser?.lastname,
+      resolvedUserType
+    );
+  }
+
+  return cachedUser;
 }
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -62,6 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isOfflineSession, setIsOfflineSession] = useState(false);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [userType, setUserType] = useState<MobileUserType | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -77,6 +123,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const storedUser = await getUser();
             if (storedUser) {
               setUser(storedUser);
+              setUserType(
+                normalizeUserType(String(storedUser?.userType || storedUser?.role || '')) || 'staff'
+              );
             }
             setIsOfflineSession(false);
             console.log('[AUTH] Session restored after coming back online');
@@ -98,6 +147,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const storedUser = await getUser();
       if (token && storedUser) {
         setUser(storedUser);
+        setUserType(
+          normalizeUserType(String(storedUser?.userType || storedUser?.role || '')) || 'staff'
+        );
         setIsAuthenticated(true);
         const connected = await hasNetworkConnection();
         setIsOfflineSession(!connected);
@@ -115,29 +167,64 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (connected) {
       try {
         const response = await api.post('/login', { username, password });
-        const { token, user: loggedInUser } = response.data;
-        await saveToken(token);
-        const cachedUser = await cacheStaffContextAfterLogin(loggedInUser);
-        await saveOfflineCredentials(
+        const { token, user: loggedInUser, user_type: responseUserType, role: responseRole } = response.data;
+
+        const resolvedUserType =
+          normalizeUserType(responseUserType) ||
+          normalizeUserType(loggedInUser?.user_type) ||
+          normalizeUserType(loggedInUser?.role) ||
+          normalizeUserType(responseRole);
+
+        if (!resolvedUserType) {
+          return {
+            success: false,
+            error: 'This account is not authorized for mobile access.',
+          };
+        }
+
+        const cachedUser = await persistAuthSession(
+          token,
+          { ...loggedInUser, role: loggedInUser?.role || responseRole },
+          resolvedUserType,
           username,
-          password,
-          cachedUser?.firstname,
-          cachedUser?.lastname
+          password
         );
+
         setUser(cachedUser);
+        setUserType(resolvedUserType);
         setIsAuthenticated(true);
         setIsOfflineSession(false);
-        return { success: true, token, user: cachedUser };
+
+        return {
+          success: true,
+          token,
+          user: cachedUser,
+          userType: resolvedUserType,
+        };
       } catch (error: any) {
         if (isNetworkError(error)) {
           const offlineResult = await loginOffline(username, password);
           if (offlineResult.success) {
+            const offlineType = normalizeUserType(offlineResult.userType) || 'staff';
             setUser(offlineResult.user);
+            setUserType(offlineType);
             setIsAuthenticated(true);
             setIsOfflineSession(true);
-            return { success: true, user: offlineResult.user, offline: true };
+            return {
+              success: true,
+              user: offlineResult.user,
+              offline: true,
+              userType: offlineType,
+            };
           }
           return { success: false, error: offlineResult.error };
+        }
+
+        if (error?.response?.status === 403) {
+          return {
+            success: false,
+            error: error?.response?.data?.message || 'You do not have permission to access this account type.',
+          };
         }
 
         const errorMessage =
@@ -148,13 +235,72 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const offlineResult = await loginOffline(username, password);
     if (offlineResult.success) {
+      const offlineType = normalizeUserType(offlineResult.userType) || 'staff';
       setUser(offlineResult.user);
+      setUserType(offlineType);
       setIsAuthenticated(true);
       setIsOfflineSession(true);
-      return { success: true, user: offlineResult.user, offline: true };
+      return {
+        success: true,
+        user: offlineResult.user,
+        offline: true,
+        userType: offlineType,
+      };
     }
 
     return { success: false, error: offlineResult.error };
+  };
+
+  const register = async (formData: Record<string, string>) => {
+    try {
+      const response = await api.post('/register', formData);
+      const { token, user: registeredUser } = response.data;
+
+      if (!token || !registeredUser) {
+        return {
+          success: false,
+          error: response.data?.message || 'Registration failed.',
+        };
+      }
+
+      const resolvedUserType = normalizeUserType(registeredUser?.role) || 'customer';
+      const cachedUser = await persistAuthSession(
+        token,
+        registeredUser,
+        resolvedUserType,
+        formData.username,
+        formData.password
+      );
+
+      setUser(cachedUser);
+      setUserType(resolvedUserType);
+      setIsAuthenticated(true);
+      setIsOfflineSession(false);
+
+      return {
+        success: true,
+        token,
+        user: cachedUser,
+        userType: resolvedUserType,
+      };
+    } catch (error: any) {
+      if (error?.response?.status === 422 && error?.response?.data?.errors) {
+        const serverErrors: Record<string, string> = {};
+        Object.entries(error.response.data.errors).forEach(([key, value]) => {
+          serverErrors[key] = Array.isArray(value) ? String(value[0]) : String(value);
+        });
+        return {
+          success: false,
+          error: Object.values(serverErrors)[0] || 'Please check your inputs.',
+          errors: serverErrors,
+        };
+      }
+
+      return {
+        success: false,
+        error: error?.response?.data?.message || error?.message || 'Registration failed.',
+      };
+    }
   };
 
   const signOut = async () => {
@@ -171,6 +317,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await deleteUser();
       await deleteOfflineCredentials();
       setUser(null);
+      setUserType(null);
       setIsAuthenticated(false);
       setIsOfflineSession(false);
     } catch (error) {
@@ -186,8 +333,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isOfflineSession,
         isReauthenticating,
         login,
+        register,
         signOut,
         user,
+        userType,
       }}
     >
       {children}

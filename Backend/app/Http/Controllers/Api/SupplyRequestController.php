@@ -14,7 +14,7 @@ class SupplyRequestController extends Controller
     /**
      * Get stock requests for the authenticated user
      */
-    public function index(Request $request)
+    public function supplyRequest(Request $request)
     {
         $user = $request->user();
         
@@ -31,7 +31,7 @@ class SupplyRequestController extends Controller
     /**
      * Get all stock requests (for admin)
      */
-    public function all(Request $request)
+    public function getSupply(Request $request)
     {
         $query = SupplyRequest::with(['user', 'product', 'branch', 'approver', 'rejecter'])
             ->orderBy('requested_at', 'desc');

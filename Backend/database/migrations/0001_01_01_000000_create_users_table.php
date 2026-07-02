@@ -18,7 +18,7 @@ return new class extends Migration
             $table->text('address')->nullable();
             $table->string('email')->unique()->nullable();
             $table->string('phone')->nullable();
-            $table->enum('role', ['admin', 'staff', 'customer'])->default('customer');
+            $table->enum('role', ['admin', 'staff', 'customer', 'delivery_rider'])->default('customer');
             $table->boolean('is_active')->default(true);
             $table->rememberToken();
             $table->timestamps();

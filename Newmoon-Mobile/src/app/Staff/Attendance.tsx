@@ -16,18 +16,10 @@ import FaceDetectionWebView, {
   type FaceDetectionWebViewHandle,
 } from '../../../components/FaceDetectionWebView';
 import api from '../../../lib/api';
-import { submitAttendanceTimeIn, submitAttendanceTimeOut, syncOfflineQueue } from '../../../lib/offlineApi';
+import { submitAttendanceTimeIn, submitAttendanceTimeOut } from '../../../lib/offlineApi';
 import { getPendingAttendance } from '../../../lib/offlineQueue';
-import { getUser as getStoredUser, saveUser } from '../../../lib/userStorage';
-import {
-  getBranchIdFromUser,
-  resolveStaffBranch,
-  loadStaffUser,
-  hasNetworkConnection,
-} from '../../../lib/staffContext';
-import { cacheFaceStatus, getCachedFaceStatus } from '../../../lib/dataCache';
+import { getUser as getStoredUser } from '../../../lib/userStorage';
 import { useOffline } from '../../../context/offlineContext';
-import { useAuth } from '../../../context/authContext';
 import { buildLandmarkEmbedding, normalizeEmbedding } from '../../../utils/faceEmbedding';
 import { FaceScanOverlay, type ScanPhase } from './FaceScanOverlay';
 import {  
@@ -35,53 +27,11 @@ import {
 } from '../../../utils/expoFaceDetectorOptional';
 import { landmarks68ToFaceLandmarksInput } from '../../../utils/landmarks68ToFace';
 
-interface User {
-  id: number | string;
-  name?: string;
-  email?: string;
-  role?: string;
-  role_id?: number;
-  branch_id?: number;
-  branch?: { id: number; name: string };
-  staff_assignment?: StaffAssignment;
-  staffAssignment?: StaffAssignment;
-  offline?: boolean;
-  firstname?: string;
-  lastname?: string;
-  username?: string;
-}
-
-interface StaffAssignment {
-  branch_id: number;
-  position?: string;
-  daily_rate?: number;
-  is_active?: boolean;
-  branch?: { id: number; name: string };
-}
-
-interface AttendanceRecord {
-  id: number | string;
-  date: string;
-  time_in?: string;
-  time_out?: string;
-  is_late?: boolean;
-  late_minutes?: number;
-  offline?: boolean;
-  created_at?: string;
-}
-
-interface AttendanceResponse {
-  data?: AttendanceRecord | AttendanceRecord[];
-  similarity?: number;
-  threshold?: number;
-  current_page?: number;
-}
-
-function isStaffUser(u: User | null): boolean {
+function isStaffUser(u: any): boolean {
   return String(u?.role ?? '').toLowerCase() === 'staff';
 }
 
-function attendanceErrorMessage(error: { response?: { data?: { code?: string; message?: string; error?: string } }; message?: string }): string {
+function attendanceErrorMessage(error: any): string {
   const code = error?.response?.data?.code;
   if (code === 'FACE_MISMATCH') {
     return 'Face not recognized. Match your enrollment pose and lighting.';
@@ -191,34 +141,28 @@ function Card(props: { children: React.ReactNode; className?: string }) {
 }
 
 // ===== HELPER: extract attendance record from paginated or plain response =====
-function extractAttendanceRecord(data: AttendanceResponse | AttendanceRecord | AttendanceRecord[] | null): AttendanceRecord | null {
+function extractAttendanceRecord(data: any): any | null {
   if (Array.isArray(data)) {
     return data[0] || null;
   }
-  if (!data) {
-    return null;
-  }
-  // Check if it's a paginated response (has data property that is an array)
-  if ('data' in data && 'current_page' in data && Array.isArray(data.data)) {
+  if (data && typeof data === 'object' && data.data && Array.isArray(data.data)) {
     // Laravel paginated response: { data: [...], current_page: 1, ... }
     return data.data[0] || null;
   }
-  // Otherwise, assume it's already an AttendanceRecord
-  return data as AttendanceRecord;
+  return data || null;
 }
 
 export default function AttendanceScreen() {
-  const { refreshPendingCount, pendingCount, isSyncing, syncNow, isOnline } = useOffline();
-  const { isReauthenticating, isOfflineSession } = useAuth();
+  const { refreshPendingCount } = useOffline();
   const [permission, requestPermission] = useCameraPermissions();
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [userLoading, setUserLoading] = useState(true);
   const [mode, setMode] = useState<'time_in' | 'time_out'>('time_in');
-  const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
+  const [attendance, setAttendance] = useState<any | null>(null);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [branchId, setBranchId] = useState<number | null>(null);
-  const [staffAssignment, setStaffAssignment] = useState<StaffAssignment | null>(null);
+  const [staffAssignment, setStaffAssignment] = useState<any | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
 
   const [faceEnrolled, setFaceEnrolled] = useState(false);
@@ -368,7 +312,7 @@ export default function AttendanceScreen() {
         clearTimeOutLock('new_day');
         // Reload attendance for the new day
         if (user?.id && branchId) {
-          loadAttendanceRecord(Number(user.id), branchId);
+          loadAttendanceRecord(user.id, branchId);
         }
       }
     };
@@ -385,25 +329,6 @@ export default function AttendanceScreen() {
   useEffect(() => {
     loadUserData();
   }, []);
-
-  // Reload data when re-authentication completes (network restored after offline login)
-  useEffect(() => {
-    if (!isReauthenticating && !isOfflineSession) {
-      console.log('[ATTENDANCE] Re-authentication complete, reloading data');
-      loadUserData();
-      refreshFaceStatus();
-    }
-  }, [isReauthenticating, isOfflineSession]);
-
-  // Show notification when switching between online/offline
-  useEffect(() => {
-    if (!isOnline && !isOfflineSession) {
-      console.log('[ATTENDANCE] Switched to offline mode');
-      // Optional: Show subtle offline indicator or toast
-    } else if (isOnline && isOfflineSession) {
-      console.log('[ATTENDANCE] Back online, re-authenticating');
-    }
-  }, [isOnline, isOfflineSession]);
 
   const addDebug = (message: string) => {
     console.log(message);
@@ -423,21 +348,12 @@ export default function AttendanceScreen() {
 
     setFaceStatusLoading(true);
     try {
-      const connected = await hasNetworkConnection();
-      if (connected) {
-        const res = await api.get('/face/status');
-        console.log('[FACE] /face/status', res.data);
-        const enrolled = res.data?.enrolled === true;
-        setFaceEnrolled(enrolled);
-        await cacheFaceStatus(enrolled);
-        return;
-      }
-      const cached = await getCachedFaceStatus();
-      setFaceEnrolled(cached === true);
+      const res = await api.get('/face/status');
+      console.log('[FACE] /face/status', res.data);
+      setFaceEnrolled(res.data?.enrolled === true);
     } catch (err) {
       console.log('[FACE] status request failed', err);
-      const cached = await getCachedFaceStatus();
-      setFaceEnrolled(cached === true);
+      setFaceEnrolled(false);
     } finally {
       setFaceStatusLoading(false);
     }
@@ -483,99 +399,25 @@ export default function AttendanceScreen() {
       setUser(userData);
       addDebug(`User ID: ${userData?.id}`);
       
+      // Fetch staff assignment from staff_assignments table
       if (userData?.id) {
-        await fetchStaffAssignment(userData);
-      } else if (!(await hasNetworkConnection())) {
-        addDebug('Offline with no cached user');
+        await fetchStaffAssignment(userData.id);
       }
       
     } catch (error: any) {
       addDebug(`Error in loadUserData: ${error.message}`);
       console.error('Failed to load user data:', error);
-      const fallback = await loadStaffUser();
-      if (fallback?.id) {
-        setUser(fallback);
-        await fetchStaffAssignment(fallback);
-      } else {
-        Alert.alert('Error', 'Failed to load user data. Please login again.');
-      }
+      Alert.alert('Error', 'Failed to load user data. Please login again.');
     } finally {
       setUserLoading(false);
     }
   };
 
-  const applyOfflinePendingAttendance = async (userId: number, branchIdValue: number) => {
-    const pending = await getPendingAttendance();
-    const { date: today } = getPhilippinesTime();
-    
-    if (pending && pending.date === today && pending.user_id === userId) {
-      // Validate branch ID matches
-      if (pending.branch_id !== branchIdValue) {
-        addDebug(`Branch mismatch: pending branch ${pending.branch_id} vs current ${branchIdValue}`);
-        // Still load but warn about potential conflict
-        addDebug('Warning: Pending attendance was recorded at different branch');
-      }
-      
-      setAttendance({
-        id: pending.serverId ?? pending.localId,
-        time_in: pending.time_in,
-        time_out: pending.time_out ?? undefined,
-        date: pending.date,
-        offline: !pending.synced,
-      });
-      setMode(pending.time_out ? 'time_in' : 'time_out');
-      addDebug('Loaded offline pending attendance');
-      
-      if (!pending.synced) {
-        addDebug('Attendance is offline - will sync when connection is restored');
-      }
-      
-      return true;
-    }
-    return false;
-  };
-
-  const fetchStaffAssignment = async (userData: any) => {
-    const userId = userData?.id;
-    if (!userId) return;
-
-    const cachedBranch = getBranchIdFromUser(userData);
-    const connected = await hasNetworkConnection();
-
-    if (!connected) {
-      if (cachedBranch) {
-        setBranchId(Number(cachedBranch));
-        setStaffAssignment(userData.staff_assignment ?? userData.staffAssignment ?? null);
-        addDebug(`Offline branch from cache: ${cachedBranch}`);
-        await applyOfflinePendingAttendance(userId, Number(cachedBranch));
-        return;
-      }
-      // For offline users with default branch assignment
-      if (userData.offline && userData.branch_id) {
-        setBranchId(Number(userData.branch_id));
-        setStaffAssignment({ branch_id: userData.branch_id, branch: userData.branch });
-        addDebug(`Offline user with default branch: ${userData.branch_id}`);
-        await applyOfflinePendingAttendance(userId, Number(userData.branch_id));
-        return;
-      }
-      addDebug('Offline but no cached branch on user');
-      return;
-    }
-
+  const fetchStaffAssignment = async (userId: number) => {
     try {
-      const connected = await hasNetworkConnection();
-      if (!connected) {
-        addDebug('Offline - skipping staff assignment API call');
-        if (cachedBranch) {
-          setBranchId(Number(cachedBranch));
-          addDebug(`Using cached branch for offline mode: ${cachedBranch}`);
-          await applyOfflinePendingAttendance(userId, Number(cachedBranch));
-        }
-        return;
-      }
-
       addDebug(`Fetching staff assignment for user ID: ${userId}`);
       
+      // Try to get staff assignment from staff_assignments table
       const response = await api.get(`/staff-assignments`, {
         params: { user_id: userId, is_active: true }
       });
@@ -601,9 +443,12 @@ export default function AttendanceScreen() {
         addDebug(`Found active staff assignment - Branch ID: ${assignment.branch_id}, Position: ${assignment.position}, Daily Rate: ${assignment.daily_rate}`);
         
         // Update user data with branch info
-        const updatedUser = { ...userData, branch_id: assignment.branch_id, staff_assignment: assignment };
-        await saveUser(updatedUser);
-        setUser(updatedUser);
+        const updatedUser = { ...user, branch_id: assignment.branch_id, staff_assignment: assignment };
+        if (Platform.OS === 'web') {
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        } else {
+          await SecureStore.setItemAsync('user', JSON.stringify(updatedUser));
+        }
         
         // Load attendance record
         await loadAttendanceRecord(userId, assignment.branch_id);
@@ -616,56 +461,21 @@ export default function AttendanceScreen() {
       addDebug(`Error fetching staff assignment: ${error.message}`);
       console.error('Failed to fetch staff assignment:', error);
       
-      // Check if this is a network error or 401 while offline
-      const isNetworkErr = error.code === 'ERR_NETWORK' || 
-                           error.code === 'ECONNABORTED' ||
-                           error.message?.includes('Network Error') ||
-                           error.message?.includes('timeout');
-      const is401 = error.response?.status === 401;
-      const isOffline = !await hasNetworkConnection();
-      
-      if (isNetworkErr || (is401 && isOffline)) {
-        addDebug('Network error or offline - using cached branch if available');
-        if (cachedBranch) {
-          setBranchId(Number(cachedBranch));
-          addDebug(`Using cached branch for offline mode: ${cachedBranch}`);
-          await applyOfflinePendingAttendance(userId, Number(cachedBranch));
-        }
-        return;
-      }
-      
-      // Try alternative endpoint if needed (only if online)
-      if (await hasNetworkConnection()) {
-        try {
-          addDebug('Trying alternative endpoint: /staff/{userId}/assignment');
-          const altResponse = await api.get(`/staff/${userId}/assignment`);
-          addDebug(`Alternative response: ${JSON.stringify(altResponse.data)}`);
+      // Try alternative endpoint if needed
+      try {
+        addDebug('Trying alternative endpoint: /staff/{userId}/assignment');
+        const altResponse = await api.get(`/staff/${userId}/assignment`);
+        addDebug(`Alternative response: ${JSON.stringify(altResponse.data)}`);
+        
+        if (altResponse.data && altResponse.data.branch_id) {
+          setStaffAssignment(altResponse.data);
+          setBranchId(altResponse.data.branch_id);
+          addDebug(`Found via alternative endpoint - Branch ID: ${altResponse.data.branch_id}`);
           
-          if (altResponse.data && altResponse.data.branch_id) {
-            setStaffAssignment(altResponse.data);
-            setBranchId(altResponse.data.branch_id);
-            addDebug(`Found via alternative endpoint - Branch ID: ${altResponse.data.branch_id}`);
-            
-             await loadAttendanceRecord(userId, altResponse.data.branch_id);
-          }
-        } catch (altError: any) {
-          addDebug(`Alternative endpoint also failed: ${altError.message}`);
+           await loadAttendanceRecord(userId, altResponse.data.branch_id);
         }
-      }
-
-      const { user: resolved, branchId: resolvedBranch } = await resolveStaffBranch(userData);
-      if (resolvedBranch) {
-        setBranchId(Number(resolvedBranch));
-        if (resolved) setUser(resolved);
-        addDebug(`Fallback branch resolved: ${resolvedBranch}`);
-        await loadAttendanceRecord(userId, Number(resolvedBranch));
-        return;
-      }
-
-      if (cachedBranch) {
-        setBranchId(Number(cachedBranch));
-        addDebug(`Using cached branch after API failure: ${cachedBranch}`);
-        await applyOfflinePendingAttendance(userId, Number(cachedBranch));
+      } catch (altError: any) {
+        addDebug(`Alternative endpoint also failed: ${altError.message}`);
       }
     }
   };
@@ -677,18 +487,6 @@ export default function AttendanceScreen() {
     setAttendanceLoading(true);
     try {
       const { date: today } = getPhilippinesTime();
-      const connected = await hasNetworkConnection();
-
-      if (!connected) {
-        addDebug('Offline - loading pending attendance from local storage');
-        const loaded = await applyOfflinePendingAttendance(userId, branchIdValue);
-        if (!loaded) {
-          setAttendance(null);
-          setMode('time_in');
-        }
-        return;
-      }
-
       addDebug(`Fetching attendance for user=${userId}, branch=${branchIdValue}, date=${today}`);
 
       const response = await api.get('/attendance', {
@@ -723,56 +521,18 @@ export default function AttendanceScreen() {
     } catch (error: any) {
       addDebug(`Failed to load attendance: ${error.message}`);
       console.error('Failed to load attendance:', error);
-      
-      // Check if this is a network error or 401 error while offline
-      const isNetworkErr = error.code === 'ERR_NETWORK' || 
-                           error.code === 'ECONNABORTED' ||
-                           error.message?.includes('Network Error') ||
-                           error.message?.includes('timeout');
-      const is401 = error.response?.status === 401;
-      const isOffline = !await hasNetworkConnection();
-      
-      if (isNetworkErr || (is401 && isOffline)) {
-        addDebug('Network error or offline - loading pending attendance from local storage');
-        const pending = await getPendingAttendance();
-        const { date: today } = getPhilippinesTime();
-        if (pending && pending.date === today) {
-          setAttendance({
-            id: pending.serverId ?? pending.localId,
-            time_in: pending.time_in,
-            time_out: pending.time_out ?? undefined,
-            date: pending.date,
-            offline: !pending.synced,
-          });
-          setMode(pending.time_out ? 'time_in' : 'time_out');
-          addDebug('Loaded offline pending attendance');
-          // Provide feedback about offline mode
-          if (!pending.synced) {
-            addDebug('Attendance is offline - will sync when connection is restored');
-          }
-        } else {
-          setAttendance(null);
-          setMode('time_in');
-          addDebug('No pending attendance found for today');
-        }
-      } else {
-        // For other errors (like real 401 auth issues), still try to load pending data
-        const pending = await getPendingAttendance();
-        const { date: today } = getPhilippinesTime();
-        if (pending && pending.date === today) {
-          setAttendance({
-            id: pending.serverId ?? pending.localId,
-            time_in: pending.time_in,
-            time_out: pending.time_out ?? undefined,
-            date: pending.date,
-            offline: !pending.synced,
-          });
-          setMode(pending.time_out ? 'time_in' : 'time_out');
-          addDebug('Loaded offline pending attendance as fallback');
-          if (!pending.synced) {
-            addDebug('Attendance is offline - will sync when connection is restored');
-          }
-        }
+      const pending = await getPendingAttendance();
+      const { date: today } = getPhilippinesTime();
+      if (pending && pending.date === today && !pending.time_out) {
+        setAttendance({
+          id: pending.serverId ?? pending.localId,
+          time_in: pending.time_in,
+          time_out: pending.time_out ?? null,
+          date: pending.date,
+          offline: !pending.synced,
+        });
+        setMode('time_out');
+        addDebug('Loaded offline pending attendance');
       }
     } finally {
       setAttendanceLoading(false);
@@ -786,7 +546,7 @@ export default function AttendanceScreen() {
       }
       console.log('[ATTENDANCE UI] screen focused; refreshing face status + attendance');
       refreshFaceStatus();
-      loadAttendanceRecord(Number(user.id), branchId);
+      loadAttendanceRecord(user.id, branchId);
     }, [user?.id, branchId, refreshFaceStatus])
   );
 
@@ -961,9 +721,8 @@ export default function AttendanceScreen() {
         console.log('[FACE] auto time-in request');
         const response = await submitAttendanceTimeIn(body);
         if (response.queued) {
-          const localAttendanceId = response.localAttendanceId ?? Date.now();
           setAttendance({
-            id: localAttendanceId,
+            id: response.localAttendanceId,
             time_in: time,
             date,
             offline: true,
@@ -971,11 +730,7 @@ export default function AttendanceScreen() {
           setMode('time_out');
           startTimeOutLock('auto_time_in');
           await refreshPendingCount();
-          Alert.alert(
-            'Saved Offline',
-            `Time In saved at ${time}. Will sync when connection is restored.`,
-            [{ text: 'OK' }]
-          );
+          Alert.alert('Saved Offline', `Time In saved at ${time}. Will sync when online.`);
           scanCooldownUntilRef.current = Date.now() + 2500;
           return;
         }
@@ -1010,11 +765,7 @@ export default function AttendanceScreen() {
           setMode('time_in');
           clearTimeOutLock('time_out');
           await refreshPendingCount();
-          Alert.alert(
-            'Saved Offline',
-            `Time Out saved at ${time}. Will sync when connection is restored.`,
-            [{ text: 'OK' }]
-          );
+          Alert.alert('Saved Offline', `Time Out saved at ${time}. Will sync when online.`);
           scanCooldownUntilRef.current = Date.now() + 2500;
           return;
         }
@@ -1129,26 +880,6 @@ export default function AttendanceScreen() {
       );
       return;
     }
-
-    // Check for existing offline attendance for today
-    const pending = await getPendingAttendance();
-    const { date: today } = getPhilippinesTime();
-    if (pending && pending.date === today && pending.time_in && !pending.time_out) {
-      Alert.alert(
-        'Pending Time In',
-        'You have a pending time-in record from offline mode. Please complete it by timing out or wait for sync.',
-        [{ text: 'OK' }]
-      );
-      setAttendance({
-        id: pending.serverId ?? pending.localId,
-        time_in: pending.time_in,
-        time_out: pending.time_out ?? undefined,
-        date: pending.date,
-        offline: !pending.synced,
-      });
-      setMode('time_out');
-      return;
-    }
     
     setLoading(true);
     try {
@@ -1156,16 +887,13 @@ export default function AttendanceScreen() {
       addDebug(`Time In: user=${user.id}, branch=${branchId}, date=${date}, time=${time}`);
 
       let faceEmbedding: number[] | undefined;
-      const connected = await hasNetworkConnection();
-      if (isStaffUser(user) && connected) {
+      if (isStaffUser(user)) {
         const emb = await captureFaceEmbedding({ requireStrong: true });
         if (!emb) {
           setLoading(false);
           return;
         }
         faceEmbedding = emb;
-      } else if (isStaffUser(user) && !connected) {
-        addDebug('Offline time-in: skipping face scan');
       }
 
       const body: Record<string, unknown> = {
@@ -1173,7 +901,6 @@ export default function AttendanceScreen() {
         branch_id: branchId,
         date: date,
         time_in: time,
-        offline: !connected,
       };
       if (faceEmbedding) {
         body.face_embedding = faceEmbedding;
@@ -1183,7 +910,7 @@ export default function AttendanceScreen() {
       
       if (response.queued) {
         setAttendance({
-          id: response.localAttendanceId ?? `offline-${Date.now()}`,
+          id: response.localAttendanceId,
           time_in: time,
           date,
           offline: true,
@@ -1191,11 +918,7 @@ export default function AttendanceScreen() {
         setMode('time_out');
         startTimeOutLock('manual_time_in');
         await refreshPendingCount();
-        Alert.alert(
-          'Saved Offline', 
-          `Time In saved at ${time}. Will sync when connection is restored.`,
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Saved Offline', `Time In saved at ${time}. Will sync when online.`);
         addDebug(`Time In queued offline`);
         return;
       }
@@ -1248,24 +971,6 @@ export default function AttendanceScreen() {
       Alert.alert('Already Timed Out', 'You already recorded your time out for today. You can time in again tomorrow.');
       return;
     }
-
-    // Check for conflicts with offline pending data
-    const pending = await getPendingAttendance();
-    const { date: today } = getPhilippinesTime();
-    if (pending && pending.date === today && pending.time_out) {
-      Alert.alert(
-        'Already Timed Out Offline',
-        'You have already recorded time out in offline mode. It will sync when connection is restored.',
-        [{ text: 'OK' }]
-      );
-      setAttendance({
-        ...attendance,
-        time_out: pending.time_out,
-        offline: true,
-      });
-      setMode('time_in');
-      return;
-    }
     
     setLoading(true);
     try {
@@ -1273,19 +978,16 @@ export default function AttendanceScreen() {
       addDebug(`Time Out: attendance=${attendance.id}, time=${time}`);
 
       let faceEmbedding: number[] | undefined;
-      const connected = await hasNetworkConnection();
-      if (isStaffUser(user) && connected) {
+      if (isStaffUser(user)) {
         const emb = await captureFaceEmbedding({ requireStrong: true });
         if (!emb) {
           setLoading(false);
           return;
         }
         faceEmbedding = emb;
-      } else if (isStaffUser(user) && !connected) {
-        addDebug('Offline time-out: skipping face scan');
       }
 
-      const body: Record<string, unknown> = { time_out: time, offline: !connected };
+      const body: Record<string, unknown> = { time_out: time };
       if (faceEmbedding) {
         body.face_embedding = faceEmbedding;
       }
@@ -1301,11 +1003,7 @@ export default function AttendanceScreen() {
         setMode('time_in');
         clearTimeOutLock('time_out');
         await refreshPendingCount();
-        Alert.alert(
-          'Saved Offline',
-          `Time Out saved at ${time}. Will sync when connection is restored.`,
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Saved Offline', `Time Out saved at ${time}. Will sync when online.`);
         addDebug(`Time Out queued offline`);
         return;
       }
@@ -1329,38 +1027,6 @@ export default function AttendanceScreen() {
       Alert.alert('Error', attendanceErrorMessage(error));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleManualSync = async () => {
-    if (!isOnline) {
-      Alert.alert('No Connection', 'Please connect to the internet to sync offline data.');
-      return;
-    }
-
-    if (pendingCount === 0) {
-      Alert.alert('Nothing to Sync', 'All data is already synced.');
-      return;
-    }
-
-    try {
-      const result = await syncNow();
-      
-      if (result.synced > 0) {
-        Alert.alert(
-          'Sync Complete',
-          `${result.synced} items synced successfully${result.failed > 0 ? `, ${result.failed} failed` : ''}.`
-        );
-        // Reload attendance record after sync
-        if (user?.id && branchId) {
-          await loadAttendanceRecord(Number(user.id), branchId);
-        }
-      } else if (result.failed > 0) {
-        Alert.alert('Sync Failed', `${result.failed} items failed to sync. Please try again.`);
-      }
-    } catch (error: any) {
-      console.error('Manual sync error:', error);
-      Alert.alert('Sync Error', error.message || 'Failed to sync offline data.');
     }
   };
 
@@ -1557,12 +1223,7 @@ export default function AttendanceScreen() {
 
         <View className="px-4 mt-4">
           <Card className="p-4">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-white font-bold">Today</Text>
-              {attendance?.offline && (
-                <Pill text="Offline" tone="warning" />
-              )}
-            </View>
+            <Text className="text-white font-bold mb-2">Today</Text>
             {attendanceLoading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : attendance ? (
@@ -1574,13 +1235,6 @@ export default function AttendanceScreen() {
                     <Pill text={`Late by ${attendance.late_minutes} min`} tone="warning" />
                   </View>
                 ) : null}
-                {attendance?.offline && (
-                  <View className="mt-2">
-                    <Text className="text-amber-300 text-xs">
-                      Saved offline - will sync when connection is restored
-                    </Text>
-                  </View>
-                )}
               </>
             ) : (
               <Text className="text-gray-400 text-sm">No attendance record yet</Text>
@@ -1605,12 +1259,7 @@ export default function AttendanceScreen() {
 
         <View className="mt-6">
           <Card className="p-4">
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className="text-white font-bold">Today&apos;s record</Text>
-              {attendance?.offline && (
-                <Pill text="Offline" tone="warning" />
-              )}
-            </View>
+            <Text className="text-white font-bold mb-3">Today&apos;s record</Text>
             <InfoRow label="Time in" value={attendance?.time_in || '—'} />
             <InfoRow label="Time out" value={attendance?.time_out || '—'} />
             {Boolean(attendance?.is_late) ? (
@@ -1618,13 +1267,6 @@ export default function AttendanceScreen() {
                 <Pill text={`Late by ${attendance?.late_minutes} min`} tone="warning" />
               </View>
             ) : null}
-            {attendance?.offline && (
-              <View className="mt-2">
-                <Text className="text-amber-300 text-xs">
-                  Saved offline - will sync when connection is restored
-                </Text>
-              </View>
-            )}
             <View className="mt-3 pt-3 border-t border-white/10">
               <InfoRow label="Branch" value={`#${branchId}`} />
               <InfoRow label="Position" value={staffAssignment?.position || 'Staff'} />
@@ -1636,7 +1278,7 @@ export default function AttendanceScreen() {
         <View className="mt-5">
           <PrimaryButton
             label={attendanceLoading ? 'Refreshing...' : 'Refresh Status'}
-            onPress={() => loadAttendanceRecord(Number(user.id), branchId)}
+            onPress={() => loadAttendanceRecord(user.id, branchId)}
             tone="blue"
             loading={attendanceLoading}
           />
@@ -1692,7 +1334,7 @@ export default function AttendanceScreen() {
               onPress={() => {
                 if (!user?.id || !branchId) return;
                 console.log('[ATTENDANCE UI] top refresh');
-                loadAttendanceRecord(Number(user.id), branchId);
+                loadAttendanceRecord(user.id, branchId);
               }}
               disabled={attendanceLoading}
               className={`border border-white/15 px-3 py-3 rounded-2xl ${
@@ -1726,39 +1368,21 @@ export default function AttendanceScreen() {
                   Time Out available in {formatMs(timeOutLockedMsLeft)}
                 </Text>
               ) : null}
-              <Text className={`${isOnline ? 'text-emerald-300' : 'text-rose-300'} text-[11px] mt-0.5`}>
-                {isOnline ? '● Online' : '● Offline'}{pendingCount > 0 ? ` • ${pendingCount} pending` : ''}
-              </Text>
             </View>
-            <View className="flex-row items-center gap-2">
-              {pendingCount > 0 && isOnline && (
-                <TouchableOpacity
-                  onPress={handleManualSync}
-                  disabled={isSyncing}
-                  className={`border border-white/15 px-3 py-1.5 rounded-xl ${
-                    isSyncing ? 'bg-black/40' : 'bg-black/60'
-                  }`}
-                >
-                  <Text className="text-white text-[11px] font-semibold">
-                    {isSyncing ? 'Syncing...' : `Sync ${pendingCount}`}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              <Pill
-                text={
-                  staffUser
-                    ? scanPhase === 'mismatch'
-                      ? 'Mismatch'
-                      : scanPhase === 'checking'
-                        ? 'Checking…'
-                        : 'Ready'
-                    : loading
-                      ? 'Working…'
+            <Pill
+              text={
+                staffUser
+                  ? scanPhase === 'mismatch'
+                    ? 'Mismatch'
+                    : scanPhase === 'checking'
+                      ? 'Checking…'
                       : 'Ready'
-                }
-                tone={staffUser && scanPhase === 'mismatch' ? 'danger' : 'success'}
-              />
-            </View>
+                  : loading
+                    ? 'Working…'
+                    : 'Ready'
+              }
+              tone={staffUser && scanPhase === 'mismatch' ? 'danger' : 'success'}
+            />
           </View>
         </View>
 
@@ -1791,25 +1415,19 @@ export default function AttendanceScreen() {
             </TouchableOpacity>
 
             <Text className="text-white text-xs mt-3 opacity-80 text-center">
-              {mode === 'time_in' ? (
-                hasTimedInToday ? (
-                  isTodayAttendance ? (
-                    'Time In already recorded today'
-                  ) : (
-                    'Time Out previous record first'
-                  )
-                ) : (
-                  'Tap to Time In'
-                )
-              ) : timeOutLocked ? (
-                `Please wait ${formatMs(timeOutLockedMsLeft)}`
-              ) : hasTimedOut ? (
-                'Time Out already recorded today'
-              ) : !hasTimedIn ? (
-                'Time In first'
-              ) : (
-                'Tap to Time Out'
-              )}
+              {mode === 'time_in'
+                ? hasTimedInToday
+                  ? isTodayAttendance
+                    ? 'Time In already recorded today'
+                    : 'Time Out previous record first'
+                  : 'Tap to Time In'
+                : timeOutLocked
+                  ? `Please wait ${formatMs(timeOutLockedMsLeft)}`
+                  : hasTimedOut
+                  ? 'Time Out already recorded today'
+                  : !hasTimedIn
+                    ? 'Time In first'
+                    : 'Tap to Time Out'}
             </Text>
           </View>
         )}
@@ -1822,12 +1440,7 @@ export default function AttendanceScreen() {
           >
             <Card className="px-4 py-3">
               <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2">
-                  <Text className="text-white text-sm font-bold">Today</Text>
-                  {attendance?.offline && (
-                    <Pill text="Offline" tone="warning" />
-                  )}
-                </View>
+                <Text className="text-white text-sm font-bold">Today</Text>
                 <Text className="text-white/60 text-[11px]">
                   {showBottomDetails ? 'Hide details' : 'Tap for details'}
                 </Text>
@@ -1852,13 +1465,6 @@ export default function AttendanceScreen() {
                         <Pill text={`Late by ${attendance?.late_minutes} min`} tone="warning" />
                       </View>
                     ) : null}
-                    {attendance?.offline && (
-                      <View className="mt-2">
-                        <Text className="text-amber-300 text-xs">
-                          Saved offline - will sync when connection is restored
-                        </Text>
-                      </View>
-                    )}
 
                     {showBottomDetails ? (
                       <View className="mt-3 pt-3 border-t border-white/10">
@@ -1886,7 +1492,7 @@ export default function AttendanceScreen() {
             </Card>
           </TouchableOpacity>
         </View>
-      </View>
+    </View>
     );
   }
 

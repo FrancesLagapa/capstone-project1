@@ -1,744 +1,848 @@
-import { useCallback, useEffect, useState } from "react";
-import { Tag, Modal, message, Avatar, Button, Switch, Tooltip } from "antd";
+import React, { useState } from "react";
+import { 
+  Tag, Modal, message, Avatar, Button, Tooltip, 
+  Input, Select, Pagination, Card, Space, Typography, 
+  Badge, Empty, Skeleton, Form, Row, Col, Switch
+} from "antd";
 import { 
   UserOutlined,
   PlusOutlined,
   DeleteOutlined,
   EditOutlined,
-  BankOutlined,
   TeamOutlined,
-  EnvironmentOutlined,
   KeyOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  SearchOutlined,
+  MailOutlined,
+  PhoneOutlined,
+  HomeOutlined,
+  IdcardOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined
 } from "@ant-design/icons";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../config/api";
-import { getCache, setCache, invalidateCache } from "../utils/cache";
+
+const { Title, Text } = Typography;
+const { Option } = Select;
 
 function Staff() {
-  const [staff, setStaff] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // State Management
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState(null);
-  const [toggleActiveLoadingId, setToggleActiveLoadingId] = useState(null);
-  const isStaffActive = (value) => value === true || value === 1 || value === "1";
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [positionFilter, setPositionFilter] = useState(null);
+  const PAGE_SIZE = 5;
 
   const [form, setForm] = useState({
-    username: '',
-    password: '',
-    firstname: '',
-    lastname: '',
-    middlename: '',
-    address: ''
+    username: "",
+    password: "",
+    firstname: "",
+    lastname: "",
+    middlename: "",
+    address: "",
+    position: "Staff",
+    email: "",
+    phone: "",
   });
 
   const [editForm, setEditForm] = useState({
-    username: '',
-    password: '',
-    firstname: '',
-    lastname: '',
-    middlename: '',
-    address: ''
+    username: "",
+    password: "",
+    firstname: "",
+    lastname: "",
+    middlename: "",
+    address: "",
+    position: "Staff",
+    email: "",
+    phone: "",
+    is_active: true,
   });
 
-  const loadData = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
-    try {
-      // Try to get data from cache first
-      const cachedStaff = forceRefresh ? null : getCache('staff');
-      
-      // If staff is cached and valid, use it
-      if (cachedStaff) {
-        setStaff(cachedStaff);
-        setLoading(false);
-        return;
+  // =========================
+  // FETCH STAFF
+  // =========================
+  const fetchStaff = async ({ queryKey }) => {
+    const [_, page, search, position] = queryKey;
+
+    const params = new URLSearchParams();
+    params.append("paginate", "true");
+    params.append("per_page", PAGE_SIZE);
+    params.append("page", page);
+
+    if (search) params.append("search", search);
+    
+    // Add position filter - convert to role filter
+    if (position) {
+      if (position === "Rider") {
+        params.append("role", "delivery_rider");
+      } else if (position === "Staff") {
+        params.append("role", "staff");
       }
-
-      // Otherwise, fetch from backend
-      const staffRes = await api.get("/staff");
-      setStaff(staffRes.data.data || []);
-      
-      // Cache the fetched data
-      setCache('staff', staffRes.data.data || []);
-    } catch (error) {
-      message.error("Failed to load staff data.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const addStaff = async () => {
-    if (!form.username || !form.firstname || !form.lastname) {
-      message.error("Please fill required fields (Username, First Name, Last Name)");
-      return;
     }
 
-    try {
-      const payload = {
-        username: form.username,
-        password: form.password || undefined,
-        firstname: form.firstname,
-        lastname: form.lastname,
-        middlename: form.middlename || undefined,
-        address: form.address || undefined,
-      };
+    const res = await api.get(`/staff?${params.toString()}`);
+    return res.data;
+  };
 
-      await api.post("/staff", payload);
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["staff", currentPage, searchTerm, positionFilter],
+    queryFn: fetchStaff,
+    keepPreviousData: true,
+  });
 
-      // Reset form
-      setForm({
-        username: '',
-        password: '',
-        firstname: '',
-        lastname: '',
-        middlename: '',
-        address: ''
+  // =========================
+  // POSITION HELPER
+  // =========================
+  const getPosition = (staff) => {
+    if (staff.role === "delivery_rider") return "Rider";
+    return "Staff";
+  };
+
+  const getPositionColor = (position) => {
+    if (position === "Rider") return "orange";
+    return "blue";
+  };
+
+  const getPositionIcon = (position) => {
+    if (position === "Rider") return "🏍️";
+    return "👤";
+  };
+
+  // =========================
+  // GET FULL NAME
+  // =========================
+  const getFullName = (staff) => {
+    let name = staff.firstname || "";
+    if (staff.middlename) {
+      name += ` ${staff.middlename.charAt(0).toUpperCase()}.`;
+    }
+    if (staff.lastname) {
+      name += ` ${staff.lastname}`;
+    }
+    return name.trim();
+  };
+
+  // =========================
+  // ADD STAFF
+  // =========================
+  const addMutation = useMutation({
+    mutationFn: (payload) => api.post("/staff", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["staff"]);
+      message.success({
+        content: "Staff member added successfully!",
+        icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />
       });
       setShowAddModal(false);
-
-      // Invalidate cache to reflect the new staff member
-      invalidateCache('staff');
-      
-      await loadData();
-      message.success("Staff member added successfully");
-      if (!form.password || String(form.password).trim() === "") {
-        message.info("Default staff password is: default123");
-      }
-    } catch (error) {
-      console.error("Add staff error:", error);
-      const validationErrors = error?.response?.data?.errors;
-      if (validationErrors) {
-        const firstField = Object.keys(validationErrors)[0];
-        const firstMessage = validationErrors[firstField]?.[0];
-        message.error(firstMessage || "Failed to add staff member");
-      } else {
-        message.error(error?.response?.data?.message || "Failed to add staff member");
-      }
+      resetForm();
+    },
+    onError: (err) => {
+      const errorMessage = err?.response?.data?.message || "Error adding staff member";
+      message.error(errorMessage);
     }
+  });
+
+  const handleAdd = async () => {
+    // Validate required fields
+    if (!form.username || !form.firstname || !form.lastname) {
+      return message.warning("Please fill in all required fields");
+    }
+
+    // Prepare payload
+    const payload = {
+      username: form.username,
+      password: form.password || "default123",
+      firstname: form.firstname,
+      lastname: form.lastname,
+      middlename: form.middlename || null,
+      address: form.address || null,
+      email: form.email || null,
+      position: form.position,
+    };
+
+    await addMutation.mutateAsync(payload);
   };
 
-  const updateStaff = async () => {
-    if (!editForm.username || !editForm.firstname || !editForm.lastname) {
-      message.error("Please fill required fields (Username, First Name, Last Name)");
-      return;
-    }
-
-    try {
-      const payload = {
-        username: editForm.username,
-        firstname: editForm.firstname,
-        lastname: editForm.lastname,
-        middlename: editForm.middlename || undefined,
-        address: editForm.address || undefined,
-      };
-
-      // Only include password if it's provided (not empty)
-      if (editForm.password && editForm.password.trim() !== '') {
-        payload.password = editForm.password;
-      }
-
-      await api.put(`/staff/${editingStaff.id}`, payload);
-
-      setShowEditModal(false);
-      setEditingStaff(null);
-      setEditForm({
-        username: '',
-        password: '',
-        firstname: '',
-        lastname: '',
-        middlename: '',
-        address: ''
+  // =========================
+  // UPDATE STAFF
+  // =========================
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => api.put(`/staff/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["staff"]);
+      message.success({
+        content: "Staff member updated successfully!",
+        icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />
       });
-
-      // Invalidate cache to reflect the staff update
-      invalidateCache('staff');
-      
-      // Re-fetch so branch assignment reflects what backend saved
-      await loadData();
-      message.success("Staff member updated successfully");
-    } catch (error) {
-      console.error("Update staff error:", error);
-      const validationErrors = error?.response?.data?.errors;
-      if (validationErrors) {
-        const firstField = Object.keys(validationErrors)[0];
-        const firstMessage = validationErrors[firstField]?.[0];
-        message.error(firstMessage || "Failed to update staff member");
-      } else {
-        message.error(error?.response?.data?.message || "Failed to update staff member");
-      }
+      setShowEditModal(false);
+    },
+    onError: (err) => {
+      const errorMessage = err?.response?.data?.message || "Error updating staff member";
+      message.error(errorMessage);
     }
-  };
+  });
 
-  const deleteStaff = async () => {
-    if (!selectedStaff?.id) return;
-    
-    try {
-      console.log("[STAFF] delete request", selectedStaff);
-      await api.delete(`/staff/${selectedStaff.id}`);
-      setShowDeleteModal(false);
-      setSelectedStaff(null);
-      
-      // Invalidate cache to reflect the deletion
-      invalidateCache('staff');
-      
-      await loadData();
-      message.success("Staff member deleted successfully");
-    } catch (error) {
-      console.error("[STAFF] delete failed", error?.response?.data ?? error?.message ?? error);
-      const code = error?.response?.data?.code;
-      if (code === "STAFF_DELETE_CONSTRAINT") {
-        message.error(error?.response?.data?.message || "Cannot delete staff with linked sales.");
-      } else {
-        message.error(error?.response?.data?.message || "Failed to delete staff member");
-      }
-    }
-  };
-
-  const toggleStaffActive = async (staffMember) => {
-    const id = staffMember?.id ?? staffMember?.user_id ?? staffMember?.staff_id ?? null;
-    if (!id) {
-      message.error("Cannot update staff: missing ID.");
-      return;
+  const handleUpdate = async () => {
+    // Validate required fields
+    if (!editForm.firstname || !editForm.lastname) {
+      return message.warning("Please fill in all required fields");
     }
 
-    const nextActive = !isStaffActive(staffMember?.is_active);
-    Modal.confirm({
-      title: nextActive ? "Enable staff account" : "Disable staff account",
-      content: (
-        <div>
-          <p className="text-gray-700 mb-2">
-            {nextActive
-              ? "This staff will be able to login again."
-              : "This staff will no longer be able to login, but sales history will remain."}
-          </p>
-          <p className="text-sm text-gray-500">
-            Staff: <span className="font-semibold">{staffMember?.firstname} {staffMember?.lastname}</span>
-          </p>
-        </div>
-      ),
-      okText: nextActive ? "Enable" : "Disable",
-      okButtonProps: { danger: !nextActive },
-      cancelText: "Cancel",
-      onOk: async () => {
-        setToggleActiveLoadingId(id);
-        try {
-          console.log("[STAFF] toggle is_active", { id, nextActive });
-          await api.put(`/staff/${id}`, { is_active: nextActive });
-          invalidateCache("staff");
-          await loadData(true);
-          message.success(nextActive ? "Staff enabled." : "Staff disabled.");
-        } catch (error) {
-          console.error("[STAFF] toggle is_active failed", error?.response?.data ?? error?.message ?? error);
-          message.error(error?.response?.data?.message || "Failed to update staff status.");
-        } finally {
-          setToggleActiveLoadingId(null);
-        }
-      },
+    const payload = {
+      firstname: editForm.firstname,
+      lastname: editForm.lastname,
+      middlename: editForm.middlename || null,
+      address: editForm.address || null,
+      email: editForm.email || null,
+      position: editForm.position,
+      is_active: editForm.is_active,
+    };
+
+    // Only include password if it's been changed
+    if (editForm.password && editForm.password.trim() !== "") {
+      payload.password = editForm.password;
+    }
+
+    await updateMutation.mutateAsync({
+      id: editingStaff.id,
+      payload: payload,
     });
   };
 
-  const openDeleteModal = (staffMember) => {
-    const id = staffMember?.id ?? staffMember?.user_id ?? staffMember?.staff_id ?? null;
-    const name = `${staffMember?.firstname ?? ""} ${staffMember?.lastname ?? ""}`.trim();
-    console.log("[STAFF] open delete modal", { id, raw: staffMember });
-    setSelectedStaff({ id, name: name || staffMember?.username || "Staff" });
-    setShowDeleteModal(true);
+  // =========================
+  // DELETE STAFF
+  // =========================
+  const deleteMutation = useMutation({
+    mutationFn: (id) => api.delete(`/staff/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["staff"]);
+      message.success({
+        content: "Staff member deleted successfully",
+        icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />
+      });
+      setShowDeleteModal(false);
+    },
+    onError: (err) => {
+      const errorData = err?.response?.data;
+      if (errorData?.code === 'STAFF_DELETE_CONSTRAINT') {
+        message.error(
+          errorData.message || "Cannot delete staff with existing records. Consider disabling instead."
+        );
+        setShowDeleteModal(false);
+      } else {
+        message.error(errorData?.message || "Error deleting staff member");
+      }
+    }
+  });
+
+  // =========================
+  // HELPERS
+  // =========================
+  const resetForm = () => {
+    setForm({
+      username: "",
+      password: "",
+      firstname: "",
+      lastname: "",
+      middlename: "",
+      address: "",
+      position: "Staff",
+      email: "",
+      phone: "",
+    });
   };
 
-  const openEditModal = (staffMember) => {
-    setEditingStaff(staffMember);
+  const openEdit = (s) => {
+    setEditingStaff(s);
+    const position = getPosition(s);
+    
     setEditForm({
-      username: staffMember.username || '',
-      password: '', // Don't populate password for security
-      firstname: staffMember.firstname || '',
-      lastname: staffMember.lastname || '',
-      middlename: staffMember.middlename || '',
-      address: staffMember.address || '',
+      username: s.username || "",
+      password: "",
+      firstname: s.firstname || "",
+      lastname: s.lastname || "",
+      middlename: s.middlename || "",
+      address: s.address || "",
+      position: position,
+      email: s.email || "",
+      phone: s.phone || "",
+      is_active: s.is_active !== undefined ? s.is_active : true,
     });
     setShowEditModal(true);
   };
 
-  // Calculate statistics
-  const totalStaff = staff.length;
+  // Clear position filter
+  const clearPositionFilter = () => {
+    setPositionFilter(null);
+  };
 
-  return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-      {/* Header - Sticky at top */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm flex-shrink-0">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">Staff Management</h1>
-              <p className="text-gray-500 mt-1">Manage your staff members</p>
-            </div>
-            <div className="flex gap-3">
-              <Button 
-                icon={<ReloadOutlined />}
-                onClick={() => loadData(true)}
-              >
-                Refresh
-              </Button>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-              >
-                <PlusOutlined />
-                Add Staff
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+  const staffList = data?.data || [];
+  const total = data?.total || 0;
 
-      {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mb-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Total Staff</p>
-                  <p className="text-2xl font-bold text-gray-800">{totalStaff}</p>
-                </div>
-                <div className="bg-blue-100 rounded-full p-3">
-                  <TeamOutlined className="text-xl text-blue-600" />
-                </div>
-              </div>
-            </div>
-          </div>
+  // =========================
+  // RENDER STAFF CARD
+  // =========================
+  const renderStaffCard = (staff, index) => {
+    const position = getPosition(staff);
+    const positionColor = getPositionColor(position);
+    const fullName = getFullName(staff);
+    
+    // Get initials for avatar
+    let initials = staff.firstname?.[0] || '';
+    if (staff.middlename) {
+      initials += staff.middlename?.[0] || '';
+    }
+    initials += staff.lastname?.[0] || '';
 
-          {/* Staff List Section */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-200 px-6 py-3">
-              <div className="flex items-center gap-2">
-                <TeamOutlined className="text-blue-600" />
-                <span className="font-semibold text-gray-700">Staff Directory</span>
-                <Tag color="blue" className="ml-2">
-                  {totalStaff} {totalStaff === 1 ? 'Member' : 'Members'}
+    return (
+      <Card 
+        key={staff.id}
+        className="hover:shadow-lg transition-shadow duration-300"
+        styles={{
+          body: { padding: '16px' }
+        }}
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-start space-x-4">
+            <Avatar 
+              size={56} 
+              style={{ 
+                backgroundColor: position === "Rider" ? '#faad14' : '#1890ff'
+              }}
+            >
+              {initials || <UserOutlined />}
+            </Avatar>
+            
+            <div className="flex-1">
+              <div className="flex items-center flex-wrap gap-2">
+                <Text strong className="text-lg">
+                  {fullName}
+                </Text>
+                <Badge 
+                  color={staff.is_active ? "green" : "red"} 
+                  text={staff.is_active ? "Active" : "Inactive"}
+                />
+                <Tag color={positionColor} className="flex items-center">
+                  <span className="mr-1">{getPositionIcon(position)}</span>
+                  {position}
                 </Tag>
               </div>
+              
+              <div className="flex items-center gap-3 mt-1">
+                <Text type="secondary" className="text-sm">
+                  <IdcardOutlined className="mr-1" />
+                  {staff.username}
+                </Text>
+              </div>
+
+              <div className="flex flex-wrap gap-3 mt-2">
+                {staff.email && (
+                  <Text type="secondary" className="text-sm">
+                    <MailOutlined className="mr-1" />
+                    {staff.email}
+                  </Text>
+                )}
+                {staff.phone && (
+                  <Text type="secondary" className="text-sm">
+                    <PhoneOutlined className="mr-1" />
+                    {staff.phone}
+                  </Text>
+                )}
+                {staff.address && (
+                  <Text type="secondary" className="text-sm">
+                    <HomeOutlined className="mr-1" />
+                    {staff.address}
+                  </Text>
+                )}
+              </div>
             </div>
-            
-            {loading ? (
-              <div className="flex justify-center py-20">
-                <div className="relative">
-                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
-                </div>
-              </div>
-            ) : staff.length === 0 ? (
-              <div className="p-12 text-center">
-                <UserOutlined className="text-6xl text-gray-300 mb-4" />
-                <p className="text-gray-500 text-lg mb-2">No staff members found</p>
-                <p className="text-gray-400">Click "Add Staff" to add your first staff member</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">NO.</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">STAFF</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">USERNAME</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">STATUS</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ADDRESS</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {Array.isArray(staff) && staff.map((s, idx) => {
-                      const rowId = s?.id ?? s?.user_id ?? s?.staff_id ?? `${s?.username ?? 'staff'}-${idx}`;
-                      return (
-                      <tr key={rowId} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <Avatar 
-                              icon={<UserOutlined />} 
-                              className="bg-blue-500"
-                              size="default"
-                            />
-                            <div>
-                              <div className="font-medium text-gray-800">
-                                {s.firstname} {s.lastname}
-                              </div>
-                              {s.middlename && (
-                                <div className="text-xs text-gray-400">{s.middlename}</div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <KeyOutlined className="text-gray-400 text-xs" />
-                            <span className="font-mono text-sm">{s.username}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {isStaffActive(s?.is_active) ? (
-                            <Tag color="green">Active</Tag>
-                          ) : (
-                            <Tag color="red">Disabled</Tag>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {s.address ? (
-                            <div className="flex items-center gap-2">
-                              <EnvironmentOutlined className="text-gray-400 text-xs" />
-                              <span className="text-gray-600 text-sm">{s.address}</span>
-                            </div>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Tooltip title={isStaffActive(s?.is_active) ? "Disable staff" : "Enable staff"}>
-                              <Switch
-                                checked={isStaffActive(s?.is_active)}
-                                onChange={() => toggleStaffActive(s)}
-                                loading={toggleActiveLoadingId === (s?.id ?? s?.user_id ?? s?.staff_id ?? null)}
-                              />
-                            </Tooltip>
-                            <button
-                              onClick={() => openEditModal(s)}
-                              className="text-blue-500 hover:text-blue-700 transition-colors"
-                              title="Edit Staff"
-                            >
-                              <EditOutlined />
-                            </button>
-                            <button
-                              onClick={() => openDeleteModal(s)}
-                              className="text-red-500 hover:text-red-700 transition-colors"
-                              title="Delete Staff"
-                            >
-                              <DeleteOutlined />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
-          {/* Footer */}
-          <div className="mt-6 text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
-            <p>Staff Directory | New Moon Lechon Manok and Liempo</p>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <Tooltip title="Edit Staff">
+              <Button 
+                type="primary" 
+                icon={<EditOutlined />} 
+                onClick={() => openEdit(staff)}
+                size="small"
+              />
+            </Tooltip>
+            <Tooltip title={staff.is_active ? "Delete Staff" : "Remove Staff"}>
+              <Button 
+                danger 
+                icon={<DeleteOutlined />} 
+                onClick={() => {
+                  setSelectedStaff(staff);
+                  setShowDeleteModal(true);
+                }}
+                size="small"
+              />
+            </Tooltip>
           </div>
         </div>
+      </Card>
+    );
+  };
+
+  return (
+    <div className="p-6 bg-gray-50 min-h-screen">
+      {/* HEADER */}
+      <Card className="mb-6 shadow-sm">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
+          <div className="flex items-center space-x-4">
+            <div className="bg-blue-100 p-3 rounded-lg">
+              <TeamOutlined className="text-blue-600 text-2xl" />
+            </div>
+            <div>
+              <Title level={4} className="m-0">
+                Staff Management
+              </Title>
+              <Text type="secondary">
+                Manage your staff members and riders
+              </Text>
+            </div>
+          </div>
+          
+          <Space>
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={refetch}
+              loading={isLoading}
+            >
+              Refresh
+            </Button>
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />} 
+              onClick={() => setShowAddModal(true)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Add Staff
+            </Button>
+          </Space>
+        </div>
+      </Card>
+
+      {/* SEARCH */}
+      <Card className="mb-6 shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4">
+          <Input
+            placeholder="Search by name, username, or email..."
+            prefix={<SearchOutlined className="text-gray-400" />}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1"
+            size="large"
+            allowClear
+          />
+          <Select
+            placeholder="Filter by position"
+            className="w-full md:w-48"
+            size="large"
+            allowClear
+            value={positionFilter}
+            onChange={(value) => setPositionFilter(value)}
+          >
+            <Option value="Staff">👤 Staff</Option>
+            <Option value="Rider">🏍️ Rider</Option>
+          </Select>
+          {positionFilter && (
+            <Button 
+              onClick={clearPositionFilter}
+              size="large"
+            >
+              Clear Filter
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/* STAFF LIST */}
+      <div className="space-y-4">
+        {isLoading ? (
+          <Card>
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        ) : staffList.length === 0 ? (
+          <Card>
+            <Empty 
+              description="No staff members found"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button type="primary" onClick={() => setShowAddModal(true)}>
+                Add Staff Member
+              </Button>
+            </Empty>
+          </Card>
+        ) : (
+          <>
+            {staffList.map((staff, index) => renderStaffCard(staff, index))}
+          </>
+        )}
       </div>
 
-      {/* Add Staff Modal */}
+      {/* PAGINATION */}
+      {total > 0 && (
+        <Card className="mt-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
+            <Text type="secondary" className="text-sm">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, total)} of {total} staff members
+            </Text>
+            <Pagination
+              current={currentPage}
+              total={total}
+              pageSize={PAGE_SIZE}
+              onChange={setCurrentPage}
+              showSizeChanger={false}
+              showQuickJumper
+            />
+          </div>
+        </Card>
+      )}
+
+      {/* ADD MODAL */}
       <Modal
         title={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center space-x-2">
             <PlusOutlined className="text-blue-600" />
-            <span>Add New Staff Member</span>
+            <span>Add Staff Member</span>
           </div>
         }
         open={showAddModal}
         onCancel={() => {
           setShowAddModal(false);
-          setForm({
-            username: '',
-            password: '',
-            firstname: '',
-            lastname: '',
-            middlename: '',
-            address: ''
-          });
+          resetForm();
         }}
-        footer={[
-          <button
-            key="cancel"
-            onClick={() => {
-              setShowAddModal(false);
-              setForm({
-                username: '',
-                password: '',
-                firstname: '',
-                lastname: '',
-                middlename: '',
-                address: '',
-                branch_id: ''
-              });
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>,
-          <button
-            key="submit"
-            onClick={addStaff}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors ml-2"
-          >
-            Add Staff
-          </button>,
-        ]}
+        onOk={handleAdd}
         width={600}
+        confirmLoading={addMutation.isPending}
+        okText="Add Staff"
+        cancelText="Cancel"
       >
-        <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter username"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={form.username}
-                onChange={e => setForm({ ...form, username: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <input
-                type="password"
-                placeholder="Enter password"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-              />
-            </div>
-          </div>
+        <Form layout="vertical">
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item 
+                label="First Name" 
+                required
+                validateStatus={!form.firstname ? 'error' : ''}
+                help={!form.firstname ? 'First name is required' : ''}
+              >
+                <Input
+                  placeholder="First name"
+                  value={form.firstname}
+                  onChange={e => setForm({...form, firstname: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="Middle Name">
+                <Input
+                  placeholder="Middle name"
+                  value={form.middlename}
+                  onChange={e => setForm({...form, middlename: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item 
+                label="Last Name" 
+                required
+                validateStatus={!form.lastname ? 'error' : ''}
+                help={!form.lastname ? 'Last name is required' : ''}
+              >
+                <Input
+                  placeholder="Last name"
+                  value={form.lastname}
+                  onChange={e => setForm({...form, lastname: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                First Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter first name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={form.firstname}
-                onChange={e => setForm({ ...form, firstname: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Last Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter last name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={form.lastname}
-                onChange={e => setForm({ ...form, lastname: e.target.value })}
-              />
-            </div>
-          </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item 
+                label="Username" 
+                required
+                validateStatus={!form.username ? 'error' : ''}
+                help={!form.username ? 'Username is required' : ''}
+              >
+                <Input
+                  placeholder="Enter username"
+                  value={form.username}
+                  onChange={e => setForm({...form, username: e.target.value})}
+                  prefix={<IdcardOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Password">
+                <Input.Password
+                  placeholder="Enter password (default: default123)"
+                  value={form.password}
+                  onChange={e => setForm({...form, password: e.target.value})}
+                  prefix={<KeyOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</label>
-            <input
-              type="text"
-              placeholder="Enter middle name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              value={form.middlename}
-              onChange={e => setForm({ ...form, middlename: e.target.value })}
-            />
-          </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Email">
+                <Input
+                  placeholder="Enter email"
+                  value={form.email}
+                  onChange={e => setForm({...form, email: e.target.value})}
+                  prefix={<MailOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Phone">
+                <Input
+                  placeholder="Enter phone number"
+                  value={form.phone}
+                  onChange={e => setForm({...form, phone: e.target.value})}
+                  prefix={<PhoneOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-            <textarea
+          <Form.Item label="Address">
+            <Input
               placeholder="Enter address"
-              rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
               value={form.address}
-              onChange={e => setForm({ ...form, address: e.target.value })}
+              onChange={e => setForm({...form, address: e.target.value})}
+              prefix={<HomeOutlined className="text-gray-400" />}
             />
-          </div>
+          </Form.Item>
 
-        </div>
+          <Form.Item label="Position" required>
+            <Select
+              value={form.position}
+              onChange={(v) => setForm({...form, position: v})}
+              size="large"
+            >
+              <Option value="Staff">
+                <UserOutlined className="mr-2" /> Staff
+              </Option>
+              <Option value="Rider">
+                🏍️ Rider
+              </Option>
+            </Select>
+          </Form.Item>
+        </Form>
       </Modal>
 
-      {/* Edit Staff Modal */}
+      {/* EDIT MODAL */}
       <Modal
         title={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center space-x-2">
             <EditOutlined className="text-blue-600" />
             <span>Edit Staff Member</span>
           </div>
         }
         open={showEditModal}
-        onCancel={() => {
-          setShowEditModal(false);
-          setEditingStaff(null);
-          setEditForm({
-            username: '',
-            password: '',
-            firstname: '',
-            lastname: '',
-            middlename: '',
-            address: ''
-          });
-        }}
-        footer={[
-          <button
-            key="cancel"
-            onClick={() => {
-              setShowEditModal(false);
-              setEditingStaff(null);
-              setEditForm({
-                username: '',
-                password: '',
-                firstname: '',
-                lastname: '',
-                middlename: '',
-                address: ''
-              });
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>,
-          <button
-            key="submit"
-            onClick={updateStaff}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ml-2"
-          >
-            Update Staff
-          </button>,
-        ]}
+        onCancel={() => setShowEditModal(false)}
+        onOk={handleUpdate}
         width={600}
+        confirmLoading={updateMutation.isPending}
+        okText="Update Staff"
+        cancelText="Cancel"
       >
-        <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter username"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={editForm.username}
-                onChange={e => setEditForm({ ...editForm, username: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <input
-                type="password"
-                placeholder="Leave blank to keep current password"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={editForm.password}
-                onChange={e => setEditForm({ ...editForm, password: e.target.value })}
-              />
-              <p className="text-xs text-gray-500 mt-1">Leave empty to keep current password</p>
-            </div>
-          </div>
+        <Form layout="vertical">
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item 
+                label="First Name" 
+                required
+                validateStatus={!editForm.firstname ? 'error' : ''}
+                help={!editForm.firstname ? 'First name is required' : ''}
+              >
+                <Input
+                  placeholder="First name"
+                  value={editForm.firstname}
+                  onChange={e => setEditForm({...editForm, firstname: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="Middle Name">
+                <Input
+                  placeholder="Middle name"
+                  value={editForm.middlename}
+                  onChange={e => setEditForm({...editForm, middlename: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item 
+                label="Last Name" 
+                required
+                validateStatus={!editForm.lastname ? 'error' : ''}
+                help={!editForm.lastname ? 'Last name is required' : ''}
+              >
+                <Input
+                  placeholder="Last name"
+                  value={editForm.lastname}
+                  onChange={e => setEditForm({...editForm, lastname: e.target.value})}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                First Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter first name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={editForm.firstname}
-                onChange={e => setEditForm({ ...editForm, firstname: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Last Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter last name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                value={editForm.lastname}
-                onChange={e => setEditForm({ ...editForm, lastname: e.target.value })}
-              />
-            </div>
-          </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Username">
+                <Input
+                  value={editForm.username}
+                  prefix={<IdcardOutlined className="text-gray-400" />}
+                  disabled
+                />
+                <Text type="secondary" className="text-xs">Username cannot be changed</Text>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="New Password">
+                <Input.Password
+                  placeholder="Enter new password (leave blank to keep current)"
+                  value={editForm.password}
+                  onChange={e => setEditForm({...editForm, password: e.target.value})}
+                  prefix={<KeyOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</label>
-            <input
-              type="text"
-              placeholder="Enter middle name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              value={editForm.middlename}
-              onChange={e => setEditForm({ ...editForm, middlename: e.target.value })}
-            />
-          </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Email">
+                <Input
+                  placeholder="Enter email"
+                  value={editForm.email}
+                  onChange={e => setEditForm({...editForm, email: e.target.value})}
+                  prefix={<MailOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Phone">
+                <Input
+                  placeholder="Enter phone number"
+                  value={editForm.phone}
+                  onChange={e => setEditForm({...editForm, phone: e.target.value})}
+                  prefix={<PhoneOutlined className="text-gray-400" />}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-            <textarea
+          <Form.Item label="Address">
+            <Input
               placeholder="Enter address"
-              rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
               value={editForm.address}
-              onChange={e => setEditForm({ ...editForm, address: e.target.value })}
+              onChange={e => setEditForm({...editForm, address: e.target.value})}
+              prefix={<HomeOutlined className="text-gray-400" />}
             />
-          </div>
+          </Form.Item>
 
-        </div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Position" required>
+                <Select
+                  value={editForm.position}
+                  onChange={(v) => setEditForm({...editForm, position: v})}
+                  size="large"
+                >
+                  <Option value="Staff">
+                    <UserOutlined className="mr-2" /> Staff
+                  </Option>
+                  <Option value="Rider">
+                    🏍️ Rider
+                  </Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Status">
+                <Switch
+                  checked={editForm.is_active}
+                  onChange={(checked) => setEditForm({...editForm, is_active: checked})}
+                  checkedChildren="Active"
+                  unCheckedChildren="Inactive"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* DELETE MODAL */}
       <Modal
         title={
-          <div className="flex items-center gap-2">
-            <DeleteOutlined className="text-red-600" />
-            <span>Delete Staff Member</span>
+          <div className="flex items-center space-x-2 text-red-600">
+            <DeleteOutlined />
+            <span>Confirm Delete</span>
           </div>
         }
         open={showDeleteModal}
-        onCancel={() => {
-          setShowDeleteModal(false);
-          setSelectedStaff(null);
-        }}
-        footer={[
-          <button
-            key="cancel"
-            onClick={() => {
-              setShowDeleteModal(false);
-              setSelectedStaff(null);
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>,
-          <button
-            key="delete"
-            onClick={deleteStaff}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors ml-2"
-          >
-            Delete
-          </button>,
-        ]}
-        width={400}
+        onOk={() => deleteMutation.mutate(selectedStaff?.id)}
+        onCancel={() => setShowDeleteModal(false)}
+        okText={selectedStaff?.is_active ? "Delete" : "Remove"}
+        cancelText="Cancel"
+        okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
+        width={420}
       >
         <div className="py-4">
-          <p className="text-gray-700 mb-2">
-            Are you sure you want to delete{" "}
-            <span className="font-semibold">{selectedStaff?.name || "this staff member"}</span>?
-          </p>
-          <p className="text-sm text-gray-500">This action cannot be undone.</p>
-          {!selectedStaff?.id ? (
-            <p className="text-sm text-red-600 mt-3">
-              Cannot delete: missing staff ID from API response. Please refresh, or ask admin to check legacy staff data.
-            </p>
-          ) : null}
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-red-50 p-4 rounded-full">
+              <DeleteOutlined className="text-red-600 text-3xl" />
+            </div>
+          </div>
+          <div className="text-center">
+            <Text strong className="text-lg">
+              Are you sure you want to {selectedStaff?.is_active ? "delete" : "remove"} this staff member?
+            </Text>
+            {selectedStaff && (
+              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                <Text>
+                  <UserOutlined className="mr-2" />
+                  {getFullName(selectedStaff)}
+                </Text>
+                <br />
+                <Text type="secondary" className="text-sm">
+                  <IdcardOutlined className="mr-2" />
+                  {selectedStaff.username}
+                </Text>
+                <br />
+                <Text type="secondary" className="text-sm">
+                  <Tag color={getPositionColor(getPosition(selectedStaff))}>
+                    {getPosition(selectedStaff)}
+                  </Tag>
+                </Text>
+              </div>
+            )}
+            {selectedStaff?.is_active ? (
+              <Text type="warning" className="block mt-3 text-sm">
+                This action cannot be undone. Consider disabling the staff instead.
+              </Text>
+            ) : (
+              <Text type="warning" className="block mt-3 text-sm">
+                This staff member is already inactive. This will permanently remove them.
+              </Text>
+            )}
+          </div>
         </div>
       </Modal>
     </div>

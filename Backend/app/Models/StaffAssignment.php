@@ -17,6 +17,11 @@ class StaffAssignment extends Model
         'is_active',
     ];
 
+    protected $casts = [
+        'is_active' => 'boolean',
+        'daily_rate' => 'decimal:2',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

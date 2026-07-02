@@ -11,6 +11,12 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    // ✅ ROLE CONSTANTS
+    const ROLE_ADMIN = 'admin';
+    const ROLE_STAFF = 'staff';
+    const ROLE_CUSTOMER = 'customer';
+    const ROLE_RIDER = 'delivery_rider';
+
     protected $fillable = [
         'username',
         'password',
@@ -30,28 +36,21 @@ class User extends Authenticatable
     ];
 
     protected $casts = [
-        'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
 
-    // Relationship with StaffAssignment
+    // ✅ AUTO APPEND
+    protected $appends = ['full_name', 'position'];
+
+    /*
+    |--------------------------------------------------------------------------
+    | RELATIONSHIPS
+    |--------------------------------------------------------------------------
+    */
+
     public function branchAssignments()
     {
         return $this->hasMany(StaffAssignment::class, 'user_id');
-    }
-
-    // Helper method to get current active branch
-    public function getCurrentBranchIdAttribute()
-    {
-        $activeAssignment = $this->branchAssignments->where('is_active', true)->first();
-        return $activeAssignment ? $activeAssignment->branch_id : null;
-    }
-
-    // Helper method to get current branch
-    public function getCurrentBranchAttribute()
-    {
-        $activeAssignment = $this->branchAssignments->where('is_active', true)->first();
-        return $activeAssignment ? $activeAssignment->branch : null;
     }
 
     public function faceTemplates()
@@ -62,5 +61,52 @@ class User extends Authenticatable
     public function activeFaceTemplate()
     {
         return $this->hasOne(UserFaceTemplate::class)->where('is_active', true);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCESSORS
+    |--------------------------------------------------------------------------
+    */
+
+    // ✅ FULL NAME
+    public function getFullNameAttribute()
+    {
+        return trim("{$this->firstname} {$this->middlename} {$this->lastname}");
+    }
+
+    // ✅ CURRENT BRANCH ID
+    public function getCurrentBranchIdAttribute()
+    {
+        $active = $this->branchAssignments()
+            ->where('is_active', true)
+            ->first();
+
+        return $active ? $active->branch_id : null;
+    }
+
+    // ✅ CURRENT BRANCH
+    public function getCurrentBranchAttribute()
+    {
+        $active = $this->branchAssignments()
+            ->where('is_active', true)
+            ->with('branch')
+            ->first();
+
+        return $active ? $active->branch : null;
+    }
+
+    // ✅ POSITION (FIXED)
+    public function getPositionAttribute()
+    {
+        $active = $this->branchAssignments()
+            ->where('is_active', true)
+            ->first();
+
+        if ($active && $active->position) {
+            return $active->position;
+        }
+
+        return $this->role === self::ROLE_RIDER ? 'Rider' : 'Staff';
     }
 }

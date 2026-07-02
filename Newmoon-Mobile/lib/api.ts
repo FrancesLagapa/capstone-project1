@@ -4,7 +4,7 @@ import { refreshAuthToken } from './authRefresh';
 import { hasNetworkConnection } from './network';
 
 const api = axios.create({
-  baseURL: 'http://192.168.254.106:8000/api',
+  baseURL: 'http://192.168.254.119:8000/api',
   timeout: 15000,
   headers: {
     Accept: 'application/json',

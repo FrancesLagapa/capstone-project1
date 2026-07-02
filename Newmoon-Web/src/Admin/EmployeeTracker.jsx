@@ -53,7 +53,7 @@ function EmployeeTracker() {
 
   const formatTime = (value) => {
     if (!value) return "-";
-
+  
     if (typeof value === "string" && /^\d{2}:\d{2}/.test(value)) {
       const [hourRaw, minuteRaw] = value.split(":");
       const hour24 = Number(hourRaw);
@@ -64,17 +64,17 @@ function EmployeeTracker() {
         return `${hour12}:${String(minute).padStart(2, "0")} ${ampm}`;
       }
     }
-
+  
     const date = new Date(value);
     if (!Number.isNaN(date.getTime())) {
       return date.toLocaleTimeString("en-PH", {
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
-        timeZone: "UTC",
+        timeZone: "Asia/Manila"  // Changed from "UTC" to "Asia/Manila"
       });
     }
-
+  
     return value;
   };
 

@@ -1,8 +1,9 @@
-// LoginScreen.js - With NativeWind v5, Username & Password Only
+// LoginScreen.js - Without Account Type Selector
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/authContext';
+import { getDashboardPath } from '../../lib/userType';
 import {
     ActivityIndicator,
     Alert,
@@ -16,14 +17,44 @@ import {
     View,
 } from 'react-native';
 
-export default function LoginScreen({ navigation }: { navigation: any }) {
+export default function LoginScreen() {
   const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading, userType, login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [navigationReady, setNavigationReady] = useState(false);
+
+  // Check if navigation is ready
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNavigationReady(true);
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Handle redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && navigationReady) {
+      // Use userType from auth context to determine redirect path
+      const redirectPath = getDashboardPath(userType || 'staff');
+      console.log('[NAVIGATION] Already authenticated, redirecting to:', redirectPath);
+      router.replace(redirectPath as any);
+    }
+  }, [isAuthenticated, userType, navigationReady]);
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <View className="flex-1 justify-center items-center bg-blue-600">
+        <ActivityIndicator size="large" color="#ffffff" />
+      </View>
+    );
+  }
 
   const validateUsername = (username: string) => {
     if (!username) return 'Username is required';
@@ -37,10 +68,7 @@ export default function LoginScreen({ navigation }: { navigation: any }) {
     return '';
   };
 
-  const { login } = useAuth();
-
   const handleLogin = async () => {
-    // prevent double click bug
     if (isLoading) return;
 
     const usernameValidationError = validateUsername(username);
@@ -54,18 +82,43 @@ export default function LoginScreen({ navigation }: { navigation: any }) {
     setIsLoading(true);
 
     try {
+      // Login without specifying userType - backend will determine it
       const result = await login(username.trim(), password);
 
       console.log('[LOGIN RESULT]', result);
-
       if (result?.success) {
         const offlineNote = result.offline
           ? '\n\nYou are in offline mode. Your actions will sync when you reconnect.'
           : '';
-        Alert.alert('Login Successful', `Welcome to the System!${offlineNote}`, [
+
+        // Use the userType from the login result
+        const userTypeFromResult = result.userType || 'staff';
+        const redirectPath = getDashboardPath(userTypeFromResult);
+        const welcomeLabel =
+          userTypeFromResult === 'rider'
+            ? 'Rider'
+            : userTypeFromResult === 'customer'
+              ? 'Customer'
+              : 'Staff';
+
+        Alert.alert('Login Successful', `Welcome ${welcomeLabel}!${offlineNote}`, [
           {
             text: 'Continue',
-            onPress: () => router.replace('/Staff/Dashboard'),
+            onPress: () => {
+              setTimeout(() => {
+                console.log('[NAVIGATION] Redirecting to:', redirectPath);
+                try {
+                  router.replace(redirectPath as any);
+                } catch (error) {
+                  console.error('[NAVIGATION ERROR]', error);
+                  try {
+                    router.push(redirectPath as any);
+                  } catch (pushError) {
+                    console.error('[NAVIGATION PUSH ERROR]', pushError);
+                  }
+                }
+              }, 300);
+            },
           },
         ]);
       } else {
@@ -103,7 +156,7 @@ export default function LoginScreen({ navigation }: { navigation: any }) {
         <View className="flex-1 justify-center items-center px-6 py-12">
           
           {/* Logo/Brand Section */}
-          <View className="items-center mb-10">
+          <View className="items-center mb-8">
             <View className="w-24 h-24 bg-white/20 rounded-3xl items-center justify-center mb-4 shadow-lg">
               <Image
                 source={require('../../assets/images/logooos.jpg')}
@@ -128,7 +181,7 @@ export default function LoginScreen({ navigation }: { navigation: any }) {
             <Text className="text-3xl font-bold text-gray-800 text-center mb-2">
               Welcome Back! 👋
             </Text>
-            <Text className="text-gray-500 text-center mb-8">
+            <Text className="text-gray-500 text-center mb-6">
               Sign in to access your account
             </Text>
 
@@ -230,7 +283,7 @@ export default function LoginScreen({ navigation }: { navigation: any }) {
             {/* Sign Up Link */}
             <View className="flex-row justify-center mt-2">
               <Text className="text-gray-500 text-sm">Don't have an account? </Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/Registration')}>
                 <Text className="text-blue-600 text-sm font-semibold">
                   Sign Up
                 </Text>

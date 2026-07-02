@@ -147,7 +147,8 @@ export default function POSScreen() {
   const [orderModalVisible, setOrderModalVisible] = useState(false);
   const [halfPortions, setHalfPortions] = useState<Record<string, boolean>>({});
 
-  const categories = ['All', 'Lechon Manok', 'Liempo'];
+  // Only "All" category now
+  const categories = ['All'];
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const buttonScaleAnim = useRef(new Animated.Value(1)).current;
@@ -405,7 +406,7 @@ export default function POSScreen() {
     }
   }, [isReauthenticating, isOfflineSession]);
 
-  // --- Cart operations (unchanged) ---
+  // --- Cart operations ---
   const zoomIn = () => {
     Animated.timing(scaleAnim, {
       toValue: 1.05,
@@ -820,58 +821,6 @@ export default function POSScreen() {
     );
   };
 
-  const OngoingStockRow = ({ item }: { item: StockItem }) => (
-    <View className="bg-gray-900 rounded-xl p-4 mb-3 border border-gray-800">
-      <View className="flex-row justify-between items-start mb-2">
-        <View className="flex-1">
-          <Text className="text-white font-bold text-base">{item.name}</Text>
-          <Text className="text-gray-400 text-xs">{item.category}</Text>
-        </View>
-        <View className={`px-3 py-1 rounded-lg ${Number(item.pendingQty || 0) > 0 ? 'bg-orange-900/30 border border-orange-800' : 'bg-green-900/30 border border-green-800'}`}>
-          <Text className={`text-xs font-bold ${Number(item.pendingQty || 0) > 0 ? 'text-orange-400' : 'text-green-400'}`}>
-            {Number(item.pendingQty || 0) > 0 ? 'Pending' : 'No Pending'}
-          </Text>
-        </View>
-      </View>
-      <View className="flex-row justify-between items-center mt-2">
-        <View className="flex-row gap-8">
-          <View>
-            <Text className="text-gray-500 text-xs">In Stock</Text>
-            <Text className="text-white font-bold text-lg">{Number(item.quantity || 0)}</Text>
-          </View>
-          <View>
-            <Text className="text-gray-500 text-xs">Incoming</Text>
-            <Text className={`font-extrabold text-lg ${Number(item.pendingQty || 0) > 0 ? 'text-orange-400' : 'text-gray-400'}`}>
-              {Number(item.pendingQty || 0)}
-            </Text>
-          </View>
-        </View>
-        {Number(item.pendingQty || 0) > 0 && (
-          <View className="flex-row gap-2">
-            <TouchableOpacity
-              onPress={() => markAsReceived(item)}
-              className="bg-green-500 py-2 px-3 rounded-lg"
-            >
-              <View className="flex-row items-center">
-                <Icon name="check" size={14} color="white" />
-                <Text className="text-white font-bold text-xs ml-1">Received</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => markAsNotReceived(item)}
-              className="bg-orange-500 py-2 px-3 rounded-lg"
-            >
-              <View className="flex-row items-center">
-                <Icon name="close" size={14} color="white" />
-                <Text className="text-white font-bold text-xs ml-1">Not Received</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-
   // --- Computed values ---
   const products = productsQuery.data || [];
   const filtered = selectedCategory === 'All' ? products : products.filter(p => p.category === selectedCategory);
@@ -909,7 +858,7 @@ export default function POSScreen() {
     );
   }
 
-  // --- JSX (same as before) ---
+  // --- JSX ---
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View className="flex-1">
@@ -983,7 +932,7 @@ export default function POSScreen() {
                     </View>
                   </TouchableOpacity>
 
-                  {/* Category Filter */}
+                  {/* Category Filter - Only "All" category */}
                   <View className="mb-6">
                     <ScrollView
                       ref={categoryScrollRef}
@@ -1001,8 +950,7 @@ export default function POSScreen() {
                         >
                           <Text className={`font-semibold text-sm ${selectedCategory === category ? 'text-white' : 'text-gray-300'
                             }`}>
-                            {category === 'Lechon Manok' ? 'Lechon Manok' :
-                              category === 'Liempo' ? 'Liempo' : 'All Items'}
+                            All Items
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -1277,6 +1225,193 @@ export default function POSScreen() {
                   </View>
                 </View>
               </KeyboardAvoidingView>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Ongoing Stocks Modal */}
+        <Modal
+          visible={ongoingStocksModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setOngoingStocksModalVisible(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setOngoingStocksModalVisible(false)}>
+            <View className="flex-1 bg-black/50 justify-end">
+              <TouchableWithoutFeedback>
+                <View className="bg-white rounded-t-3xl h-[90%]">
+                  {/* Header */}
+                  <View className="px-4 py-3 rounded-t-3xl flex-row justify-between items-center" style={{ backgroundColor: '#10B981' }}>
+                    <View className="flex-row items-center">
+                      <Icon name="inventory" size={22} color="white" />
+                      <Text className="text-white font-bold text-lg ml-2">Ongoing Stocks</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setOngoingStocksModalVisible(false)}>
+                      <Icon name="close" size={26} color="white" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
+                    {ongoingStocks.length === 0 ? (
+                      <View className="py-14 items-center">
+                        <View className="bg-gray-100 p-4 rounded-full mb-4">
+                          <Icon name="inventory" size={40} color="#9CA3AF" />
+                        </View>
+                        <Text className="text-gray-500 text-center font-medium">No ongoing stocks</Text>
+                        <Text className="text-gray-400 text-xs text-center mt-1">All deliveries have been received</Text>
+                      </View>
+                    ) : (
+                      <>
+                        {/* Received Section */}
+                        {ongoingStocks.some(item => 
+                          (item.ongoing_stocks || []).some(d => d.received_at)
+                        ) && (
+                          <View className="mb-4">
+                            <TouchableOpacity
+                              onPress={toggleCollapsedReceived}
+                              className="flex-row justify-between items-center bg-green-50 px-3 py-2 rounded-xl mb-2"
+                            >
+                              <View className="flex-row items-center">
+                                <Icon name="check-circle" size={18} color="#10B981" />
+                                <Text className="text-green-700 font-bold text-sm ml-2">Received</Text>
+                                <Text className="text-green-600 text-xs ml-2 bg-green-100 px-2 py-0.5 rounded-full">
+                                  {ongoingStocks.filter(item => 
+                                    (item.ongoing_stocks || []).some(d => d.received_at)
+                                  ).length}
+                                </Text>
+                              </View>
+                              <Icon 
+                                name={collapsedReceived ? "chevron-right" : "expand-more"} 
+                                size={20} 
+                                color="#10B981" 
+                              />
+                            </TouchableOpacity>
+                            
+                            {!collapsedReceived && (
+                              <View className="ml-2">
+                                {ongoingStocks
+                                  .filter(item => 
+                                    (item.ongoing_stocks || []).some(d => d.received_at)
+                                  )
+                                  .map((item) => {
+                                    const receivedStocks = (item.ongoing_stocks || []).filter(d => d.received_at);
+                                    return (
+                                      <View key={item.id} className="bg-gray-50 rounded-xl p-3 mb-2 border border-green-100">
+                                        <View className="flex-row justify-between items-start">
+                                          <View className="flex-1">
+                                            <Text className="text-gray-800 font-bold text-sm">{item.name}</Text>
+                                            <Text className="text-gray-500 text-xs">{item.category}</Text>
+                                          </View>
+                                          <View className="bg-green-100 px-2 py-0.5 rounded-full">
+                                            <Text className="text-green-700 text-xs font-bold">Received</Text>
+                                          </View>
+                                        </View>
+                                        <View className="flex-row justify-between items-center mt-2">
+                                          <View className="flex-row gap-6">
+                                            <View>
+                                              <Text className="text-gray-500 text-[10px]">Quantity</Text>
+                                              <Text className="text-gray-800 font-bold text-sm">
+                                                {receivedStocks.reduce((sum, d) => sum + Number(d.quantity || 0), 0)}
+                                              </Text>
+                                            </View>
+                                            <View>
+                                              <Text className="text-gray-500 text-[10px]">Current Stock</Text>
+                                              <Text className="text-gray-800 font-bold text-sm">{item.quantity}</Text>
+                                            </View>
+                                          </View>
+                                          {item.lastDeliveryAt && (
+                                            <Text className="text-gray-400 text-[10px]">
+                                              {new Date(item.lastDeliveryAt).toLocaleDateString()}
+                                            </Text>
+                                          )}
+                                        </View>
+                                      </View>
+                                    );
+                                  })}
+                              </View>
+                            )}
+                          </View>
+                        )}
+
+                        {/* Not Received Section */}
+                        {ongoingStocks.some(item => 
+                          (item.ongoing_stocks || []).some(d => !d.received_at)
+                        ) && (
+                          <View className="mb-4">
+                            <TouchableOpacity
+                              onPress={toggleCollapsedNotReceived}
+                              className="flex-row justify-between items-center bg-orange-50 px-3 py-2 rounded-xl mb-2"
+                            >
+                              <View className="flex-row items-center">
+                                <Icon name="pending" size={18} color="#F97316" />
+                                <Text className="text-orange-700 font-bold text-sm ml-2">Not Received</Text>
+                                <Text className="text-orange-600 text-xs ml-2 bg-orange-100 px-2 py-0.5 rounded-full">
+                                  {ongoingStocks.filter(item => 
+                                    (item.ongoing_stocks || []).some(d => !d.received_at)
+                                  ).length}
+                                </Text>
+                              </View>
+                              <Icon 
+                                name={collapsedNotReceived ? "chevron-right" : "expand-more"} 
+                                size={20} 
+                                color="#F97316" 
+                              />
+                            </TouchableOpacity>
+                            
+                            {!collapsedNotReceived && (
+                              <View className="ml-2">
+                                {ongoingStocks
+                                  .filter(item => 
+                                    (item.ongoing_stocks || []).some(d => !d.received_at)
+                                  )
+                                  .map((item) => {
+                                    const pendingStocks = (item.ongoing_stocks || []).filter(d => !d.received_at);
+                                    return (
+                                      <View key={item.id} className="bg-gray-50 rounded-xl p-3 mb-2 border border-orange-100">
+                                        <View className="flex-row justify-between items-start">
+                                          <View className="flex-1">
+                                            <Text className="text-gray-800 font-bold text-sm">{item.name}</Text>
+                                            <Text className="text-gray-500 text-xs">{item.category}</Text>
+                                          </View>
+                                          <View className="bg-orange-100 px-2 py-0.5 rounded-full">
+                                            <Text className="text-orange-700 text-xs font-bold">Pending</Text>
+                                          </View>
+                                        </View>
+                                        <View className="flex-row justify-between items-center mt-2">
+                                          <View className="flex-row gap-6">
+                                            <View>
+                                              <Text className="text-gray-500 text-[10px]">Pending Qty</Text>
+                                              <Text className="text-orange-600 font-bold text-sm">
+                                                {pendingStocks.reduce((sum, d) => sum + Number(d.quantity || 0), 0)}
+                                              </Text>
+                                            </View>
+                                            <View>
+                                              <Text className="text-gray-500 text-[10px]">Current Stock</Text>
+                                              <Text className="text-gray-800 font-bold text-sm">{item.quantity}</Text>
+                                            </View>
+                                          </View>
+                                          <TouchableOpacity
+                                            onPress={() => markAsReceived(item)}
+                                            className="bg-green-500 px-3 py-1.5 rounded-lg"
+                                          >
+                                            <View className="flex-row items-center">
+                                              <Icon name="check" size={14} color="white" />
+                                              <Text className="text-white font-bold text-xs ml-1">Receive</Text>
+                                            </View>
+                                          </TouchableOpacity>
+                                        </View>
+                                      </View>
+                                    );
+                                  })}
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
         </Modal>

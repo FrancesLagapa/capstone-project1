@@ -11,6 +11,7 @@ import {
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from "../config/api";
+const { Option } = Select;
 
 const { TextArea } = Input;
 

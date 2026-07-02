@@ -11,7 +11,7 @@ use Illuminate\Http\Request;
 
 class AttendanceController extends Controller
 {
-    public function index(Request $request)
+    public function getAttendance(Request $request)
     {
         $query = Attendance::with(['user', 'branch']);
 

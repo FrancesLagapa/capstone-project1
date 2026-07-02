@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Tag, Modal, message, Avatar, Button, Switch, Tooltip } from "antd";
 import {
   UserOutlined,
@@ -8,88 +8,119 @@ import {
   BankOutlined,
   TeamOutlined,
   ReloadOutlined,
+  CarOutlined,
 } from "@ant-design/icons";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from "../config/api";
-import { getCache, setCache, invalidateCache } from "../utils/cache";
+
+// API functions - fetch staff and riders from assignments
+const fetchStaff = async () => {
+  const response = await api.get("/staff?paginate=false");
+  if (response.data?.data) {
+    return Array.isArray(response.data.data) ? response.data.data : [];
+  }
+  return Array.isArray(response.data) ? response.data : [];
+};
+
+const fetchAssignments = async () => {
+  const response = await api.get("/staff-assignments?paginate=false");
+  if (response.data?.data) {
+    return Array.isArray(response.data.data) ? response.data.data : [];
+  }
+  return Array.isArray(response.data) ? response.data : [];
+};
+
+const fetchBranches = async () => {
+  const response = await api.get("/branches");
+  return response.data?.data || (Array.isArray(response.data) ? response.data : []);
+};
+
+const createAssignment = async (data) => {
+  const response = await api.post("/staff-assignments", data);
+  return response.data;
+};
+
+const updateAssignment = async ({ id, data }) => {
+  const response = await api.put(`/staff-assignments/${id}`, data);
+  return response.data;
+};
+
+const deleteAssignment = async (id) => {
+  const response = await api.delete(`/staff-assignments/${id}`);
+  return response.data;
+};
+
+const toggleAssignmentStatus = async ({ id, is_active }) => {
+  const response = await api.put(`/staff-assignments/${id}`, { is_active });
+  return response.data;
+};
 
 function BranchAssignments() {
-  const [staff, setStaff] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  // Add modal state
+  // State for modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
   const [form, setForm] = useState({
     user_id: "",
     branch_id: "",
-    position: "Staff",
-    daily_rate: 500,
+    position: "",
+    daily_rate: "",
   });
-
-  // Edit modal state
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState(null);
   const [editForm, setEditForm] = useState({
     user_id: "",
     branch_id: "",
-    position: "Staff",
-    daily_rate: 500,
+    position: "",
+    daily_rate: "",
   });
 
-  // Load all data (staff, assignments, branches)
-  const loadData = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
-    try {
-      const cachedStaff = forceRefresh ? null : getCache("staff");
-      const cachedAssignments = forceRefresh ? null : getCache("branchAssignments");
-      const cachedBranches = forceRefresh ? null : getCache("branches");
+  // React Query - Fetch all data
+  const { 
+    data: staff = [], 
+    isLoading: staffLoading,
+    refetch: refetchStaff 
+  } = useQuery({
+    queryKey: ['staff'],
+    queryFn: fetchStaff,
+    staleTime: 5 * 60 * 1000,
+  });
 
-      if (cachedStaff && cachedAssignments && cachedBranches) {
-        setStaff(Array.isArray(cachedStaff) ? cachedStaff : []);
-        setAssignments(Array.isArray(cachedAssignments) ? cachedAssignments : []);
-        setBranches(Array.isArray(cachedBranches) ? cachedBranches : []);
-        setLoading(false);
-        return;
-      }
+  const { 
+    data: assignments = [], 
+    isLoading: assignmentsLoading,
+    refetch: refetchAssignments 
+  } = useQuery({
+    queryKey: ['assignments'],
+    queryFn: fetchAssignments,
+    staleTime: 5 * 60 * 1000,
+  });
 
-      const [staffRes, assignmentsRes, branchesRes] = await Promise.all([
-        api.get("/staff?paginate=false"),
-        api.get("/staff-assignments?paginate=false"), // get all assignments
-        api.get("/branches"),
-      ]);
+  const { 
+    data: branches = [], 
+    isLoading: branchesLoading,
+    refetch: refetchBranches 
+  } = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+    staleTime: 5 * 60 * 1000,
+  });
 
-      const staffRows = staffRes.data?.data || (Array.isArray(staffRes.data) ? staffRes.data : []);
-      const assignmentRows = assignmentsRes.data?.data || (Array.isArray(assignmentsRes.data) ? assignmentsRes.data : []);
-      const branchRows = branchesRes.data?.data || [];
+  const loading = staffLoading || assignmentsLoading || branchesLoading;
 
-      setStaff(staffRows);
-      setAssignments(assignmentRows);
-      setBranches(branchRows);
+  // Separate staff and riders from the staff list
+  const staffOnly = staff.filter(user => user.role === 'staff');
+  const riders = staff.filter(user => user.role === 'delivery_rider');
 
-      setCache("staff", staffRows);
-      setCache("branchAssignments", assignmentRows);
-      setCache("branches", branchRows);
-    } catch (error) {
-      console.error("Load data error:", error);
-      message.error("Failed to load data.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Combine staff and riders into one list
+  const allUsers = [...staffOnly, ...riders];
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // Build a combined list: each staff with their latest/active assignment
-  const staffWithAssignment = staff.map((s) => {
-    // Prefer active assignment, otherwise any assignment
-    const assignment =
-      assignments.find((a) => a.user_id === s.id && a.is_active) ||
-      assignments.find((a) => a.user_id === s.id);
+  // Build combined list with assignments
+  const usersWithAssignment = allUsers.map((user) => {
+    const assignment = assignments.find((a) => a.user_id === user.id && a.is_active) ||
+                       assignments.find((a) => a.user_id === user.id);
     return {
-      ...s,
+      ...user,
       assignment: assignment || null,
       branch: assignment?.branch || null,
       position: assignment?.position || "Unassigned",
@@ -99,41 +130,29 @@ function BranchAssignments() {
   });
 
   // Statistics
-  const totalStaff = staff.length;
-  const assignedCount = staffWithAssignment.filter((s) => s.assignment).length;
-  const unassignedCount = totalStaff - assignedCount;
+  const totalStaff = staffOnly.length;
+  const totalRiders = riders.length;
+  const totalUsers = allUsers.length;
+  const assignedCount = usersWithAssignment.filter((u) => u.assignment).length;
+  const unassignedCount = totalUsers - assignedCount;
   const totalBranches = branches.length;
 
-  // Add assignment
-  const addAssignment = async () => {
-    if (!form.user_id || !form.branch_id) {
-      message.error("Please select both a staff member and a branch");
-      return;
-    }
-
-    try {
-      const payload = {
-        user_id: Number(form.user_id),
-        branch_id: Number(form.branch_id),
-        position: form.position || "Staff",
-        daily_rate: form.daily_rate ? Number(form.daily_rate) : 500,
-        is_active: true,
-      };
-
-      await api.post("/staff-assignments", payload);
-
+  // Mutations
+  const addMutation = useMutation({
+    mutationFn: createAssignment,
+    onSuccess: () => {
+      message.success("Branch assignment added successfully");
+      setShowAddModal(false);
       setForm({
         user_id: "",
         branch_id: "",
-        position: "Staff",
-        daily_rate: 500,
+        position: "",
+        daily_rate: "",
       });
-      setShowAddModal(false);
-
-      invalidateCache("branchAssignments");
-      await loadData(true);
-      message.success("Branch assignment added successfully");
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+    },
+    onError: (error) => {
       console.error("Add assignment error:", error);
       const validationErrors = error?.response?.data?.errors;
       if (validationErrors) {
@@ -143,39 +162,25 @@ function BranchAssignments() {
       } else {
         message.error(error?.response?.data?.message || "Failed to add branch assignment");
       }
-    }
-  };
+    },
+  });
 
-  // Update assignment
-  const updateAssignment = async () => {
-    if (!editForm.user_id || !editForm.branch_id) {
-      message.error("Please select both a staff member and a branch");
-      return;
-    }
-
-    try {
-      const payload = {
-        user_id: Number(editForm.user_id),
-        branch_id: Number(editForm.branch_id),
-        position: editForm.position || "Staff",
-        daily_rate: editForm.daily_rate ? Number(editForm.daily_rate) : 500,
-      };
-
-      await api.put(`/staff-assignments/${editingAssignment.id}`, payload);
-
+  const updateMutation = useMutation({
+    mutationFn: updateAssignment,
+    onSuccess: () => {
+      message.success("Branch assignment updated successfully");
       setShowEditModal(false);
       setEditingAssignment(null);
       setEditForm({
         user_id: "",
         branch_id: "",
-        position: "Staff",
-        daily_rate: 500,
+        position: "",
+        daily_rate: "",
       });
-
-      invalidateCache("branchAssignments");
-      await loadData(true);
-      message.success("Branch assignment updated successfully");
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+    },
+    onError: (error) => {
       console.error("Update assignment error:", error);
       const validationErrors = error?.response?.data?.errors;
       if (validationErrors) {
@@ -185,11 +190,82 @@ function BranchAssignments() {
       } else {
         message.error(error?.response?.data?.message || "Failed to update branch assignment");
       }
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteAssignment,
+    onSuccess: () => {
+      message.success("Branch assignment deleted successfully");
+      queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+    },
+    onError: (error) => {
+      console.error("Delete assignment error:", error);
+      message.error(error?.response?.data?.message || "Failed to delete branch assignment");
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: toggleAssignmentStatus,
+    onSuccess: (data, variables) => {
+      message.success(variables.is_active ? "Assignment activated." : "Assignment deactivated.");
+      queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+    },
+    onError: (error) => {
+      console.error("Toggle assignment error:", error);
+      message.error(error?.response?.data?.message || "Failed to update assignment status.");
+    },
+  });
+
+  const handleAddAssignment = async () => {
+    if (!form.user_id || !form.branch_id) {
+      message.error("Please select both a user and a branch");
+      return;
     }
+
+    // Get the selected user to determine role
+    const selectedUser = allUsers.find(u => u.id === Number(form.user_id));
+    const defaultPosition = selectedUser?.role === 'delivery_rider' ? 'Delivery Rider' : 'Staff';
+    const defaultRate = selectedUser?.role === 'delivery_rider' ? 400 : 500;
+
+    const payload = {
+      user_id: Number(form.user_id),
+      branch_id: Number(form.branch_id),
+      position: form.position || defaultPosition,
+      daily_rate: form.daily_rate ? Number(form.daily_rate) : defaultRate,
+      is_active: true,
+    };
+
+    await addMutation.mutateAsync(payload);
   };
 
-  // Delete assignment
-  const deleteAssignment = async (assignment) => {
+  const handleUpdateAssignment = async () => {
+    if (!editForm.user_id || !editForm.branch_id) {
+      message.error("Please select both a user and a branch");
+      return;
+    }
+
+    // Get the selected user to determine role
+    const selectedUser = allUsers.find(u => u.id === Number(editForm.user_id));
+    const defaultPosition = selectedUser?.role === 'delivery_rider' ? 'Delivery Rider' : 'Staff';
+    const defaultRate = selectedUser?.role === 'delivery_rider' ? 400 : 500;
+
+    const payload = {
+      id: editingAssignment.id,
+      data: {
+        user_id: Number(editForm.user_id),
+        branch_id: Number(editForm.branch_id),
+        position: editForm.position || defaultPosition,
+        daily_rate: editForm.daily_rate ? Number(editForm.daily_rate) : defaultRate,
+      },
+    };
+
+    await updateMutation.mutateAsync(payload);
+  };
+
+  const handleDeleteAssignment = (assignment) => {
     Modal.confirm({
       title: "Delete Branch Assignment",
       content: (
@@ -198,7 +274,7 @@ function BranchAssignments() {
             Are you sure you want to remove this branch assignment?
           </p>
           <p className="text-sm text-gray-500">
-            Staff:{" "}
+            User:{" "}
             <span className="font-semibold">
               {assignment.user?.firstname} {assignment.user?.lastname}
             </span>
@@ -212,21 +288,12 @@ function BranchAssignments() {
       okButtonProps: { danger: true },
       cancelText: "Cancel",
       onOk: async () => {
-        try {
-          await api.delete(`/staff-assignments/${assignment.id}`);
-          invalidateCache("branchAssignments");
-          await loadData(true);
-          message.success("Branch assignment deleted successfully");
-        } catch (error) {
-          console.error("Delete assignment error:", error);
-          message.error(error?.response?.data?.message || "Failed to delete branch assignment");
-        }
+        await deleteMutation.mutateAsync(assignment.id);
       },
     });
   };
 
-  // Toggle active status
-  const toggleAssignmentActive = async (assignment) => {
+  const handleToggleAssignment = (assignment) => {
     const nextActive = !assignment.is_active;
     Modal.confirm({
       title: nextActive ? "Activate branch assignment" : "Deactivate branch assignment",
@@ -234,11 +301,11 @@ function BranchAssignments() {
         <div>
           <p className="text-gray-700 mb-2">
             {nextActive
-              ? "This staff member will be assigned to this branch."
-              : "This staff member will no longer be assigned to this branch."}
+              ? "This user will be assigned to this branch."
+              : "This user will no longer be assigned to this branch."}
           </p>
           <p className="text-sm text-gray-500">
-            Staff:{" "}
+            User:{" "}
             <span className="font-semibold">
               {assignment.user?.firstname} {assignment.user?.lastname}
             </span>
@@ -252,43 +319,36 @@ function BranchAssignments() {
       okButtonProps: { danger: !nextActive },
       cancelText: "Cancel",
       onOk: async () => {
-        try {
-          await api.put(`/staff-assignments/${assignment.id}`, { is_active: nextActive });
-          invalidateCache("branchAssignments");
-          await loadData(true);
-          message.success(nextActive ? "Assignment activated." : "Assignment deactivated.");
-        } catch (error) {
-          console.error("Toggle assignment error:", error);
-          message.error(error?.response?.data?.message || "Failed to update assignment status.");
-        }
+        await toggleMutation.mutateAsync({ id: assignment.id, is_active: nextActive });
       },
     });
   };
 
-  // Open edit modal
   const openEditModal = (assignment) => {
     setEditingAssignment(assignment);
     setEditForm({
       user_id: assignment.user_id || "",
       branch_id: assignment.branch_id || "",
-      position: assignment.position || "Staff",
-      daily_rate: assignment.daily_rate || 500,
+      position: assignment.position || "",
+      daily_rate: assignment.daily_rate || "",
     });
-    // Ensure staff list is fresh
-    invalidateCache("staff");
-    loadData(true);
     setShowEditModal(true);
   };
 
-  // Open add modal with optional pre-selected staff
   const openAddModal = (preSelectedUserId = "") => {
     setForm({
       user_id: preSelectedUserId,
       branch_id: "",
-      position: "Staff",
-      daily_rate: 500,
+      position: "",
+      daily_rate: "",
     });
     setShowAddModal(true);
+  };
+
+  const refreshAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['staff'] });
+    queryClient.invalidateQueries({ queryKey: ['assignments'] });
+    queryClient.invalidateQueries({ queryKey: ['branches'] });
   };
 
   return (
@@ -299,10 +359,14 @@ function BranchAssignments() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-800">Branch Assignments</h1>
-              <p className="text-gray-500 mt-1">Manage staff branch assignments</p>
+              <p className="text-gray-500 mt-1">Manage staff and rider branch assignments</p>
             </div>
             <div className="flex gap-3">
-              <Button icon={<ReloadOutlined />} onClick={() => loadData(true)}>
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={refreshAll}
+                loading={loading}
+              >
                 Refresh
               </Button>
               <button
@@ -321,15 +385,26 @@ function BranchAssignments() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-6 py-6">
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Total Staff</p>
-                  <p className="text-2xl font-bold text-gray-800">{totalStaff}</p>
+                  <p className="text-2xl font-bold text-blue-600">{totalStaff}</p>
                 </div>
                 <div className="bg-blue-100 rounded-full p-3">
                   <TeamOutlined className="text-xl text-blue-600" />
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Total Riders</p>
+                  <p className="text-2xl font-bold text-orange-600">{totalRiders}</p>
+                </div>
+                <div className="bg-orange-100 rounded-full p-3">
+                  <CarOutlined className="text-xl text-orange-600" />
                 </div>
               </div>
             </div>
@@ -348,10 +423,10 @@ function BranchAssignments() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Unassigned</p>
-                  <p className="text-2xl font-bold text-orange-600">{unassignedCount}</p>
+                  <p className="text-2xl font-bold text-red-600">{unassignedCount}</p>
                 </div>
-                <div className="bg-orange-100 rounded-full p-3">
-                  <UserOutlined className="text-xl text-orange-600" />
+                <div className="bg-red-100 rounded-full p-3">
+                  <UserOutlined className="text-xl text-red-600" />
                 </div>
               </div>
             </div>
@@ -368,14 +443,14 @@ function BranchAssignments() {
             </div>
           </div>
 
-          {/* Staff Table with Assignment Status */}
+          {/* Users Table with Assignment Status */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-6 py-3">
               <div className="flex items-center gap-2">
                 <TeamOutlined className="text-blue-600" />
-                <span className="font-semibold text-gray-700">Staff Directory</span>
+                <span className="font-semibold text-gray-700">Staff & Riders Directory</span>
                 <Tag color="blue" className="ml-2">
-                  {totalStaff} {totalStaff === 1 ? "Member" : "Members"}
+                  {totalUsers} {totalUsers === 1 ? "Member" : "Members"}
                 </Tag>
               </div>
             </div>
@@ -386,11 +461,11 @@ function BranchAssignments() {
                   <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
                 </div>
               </div>
-            ) : staffWithAssignment.length === 0 ? (
+            ) : usersWithAssignment.length === 0 ? (
               <div className="p-12 text-center">
                 <UserOutlined className="text-6xl text-gray-300 mb-4" />
-                <p className="text-gray-500 text-lg mb-2">No staff members found</p>
-                <p className="text-gray-400">Add staff members from the Staff Management page</p>
+                <p className="text-gray-500 text-lg mb-2">No staff or riders found</p>
+                <p className="text-gray-400">Add users from the User Management page</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -401,7 +476,10 @@ function BranchAssignments() {
                         NO.
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        STAFF
+                        USER
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        TYPE
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         BRANCH
@@ -421,36 +499,43 @@ function BranchAssignments() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {staffWithAssignment.map((s, idx) => (
-                      <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                    {usersWithAssignment.map((u, idx) => (
+                      <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <Avatar icon={<UserOutlined />} className="bg-blue-500" size="default" />
                             <div>
                               <div className="font-medium text-gray-800">
-                                {s.firstname} {s.lastname}
+                                {u.firstname} {u.lastname}
                               </div>
-                              <div className="text-xs text-gray-400">{s.username}</div>
+                              <div className="text-xs text-gray-400">{u.username}</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          {s.assignment ? (
-                            <Tag color="green">{s.branch?.name || "N/A"}</Tag>
+                          {u.role === 'delivery_rider' ? (
+                            <Tag color="orange" icon={<CarOutlined />}>Rider</Tag>
+                          ) : (
+                            <Tag color="blue" icon={<TeamOutlined />}>Staff</Tag>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {u.assignment ? (
+                            <Tag color="green">{u.branch?.name || "N/A"}</Tag>
                           ) : (
                             <Tag color="default">Not Assigned</Tag>
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-gray-700">{s.position || "—"}</span>
+                          <span className="text-gray-700">{u.position || "—"}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-gray-700">₱{s.daily_rate || 0}</span>
+                          <span className="text-gray-700">₱{u.daily_rate || 0}</span>
                         </td>
                         <td className="px-4 py-3">
-                          {s.assignment ? (
-                            s.is_active ? (
+                          {u.assignment ? (
+                            u.is_active ? (
                               <Tag color="green">Active</Tag>
                             ) : (
                               <Tag color="red">Inactive</Tag>
@@ -461,23 +546,24 @@ function BranchAssignments() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            {s.assignment ? (
+                            {u.assignment ? (
                               <>
-                                <Tooltip title={s.is_active ? "Deactivate" : "Activate"}>
+                                <Tooltip title={u.is_active ? "Deactivate" : "Activate"}>
                                   <Switch
-                                    checked={s.is_active}
-                                    onChange={() => toggleAssignmentActive(s.assignment)}
+                                    checked={u.is_active}
+                                    onChange={() => handleToggleAssignment(u.assignment)}
+                                    loading={toggleMutation.isPending}
                                   />
                                 </Tooltip>
                                 <button
-                                  onClick={() => openEditModal(s.assignment)}
+                                  onClick={() => openEditModal(u.assignment)}
                                   className="text-blue-500 hover:text-blue-700"
                                   title="Edit Assignment"
                                 >
                                   <EditOutlined />
                                 </button>
                                 <button
-                                  onClick={() => deleteAssignment(s.assignment)}
+                                  onClick={() => handleDeleteAssignment(u.assignment)}
                                   className="text-red-500 hover:text-red-700"
                                   title="Delete Assignment"
                                 >
@@ -486,7 +572,7 @@ function BranchAssignments() {
                               </>
                             ) : (
                               <button
-                                onClick={() => openAddModal(s.id)}
+                                onClick={() => openAddModal(u.id)}
                                 className="text-green-600 hover:text-green-800 flex items-center gap-1"
                                 title="Assign to Branch"
                               >
@@ -524,8 +610,8 @@ function BranchAssignments() {
           setForm({
             user_id: "",
             branch_id: "",
-            position: "Staff",
-            daily_rate: 500,
+            position: "",
+            daily_rate: "",
           });
         }}
         footer={[
@@ -536,8 +622,8 @@ function BranchAssignments() {
               setForm({
                 user_id: "",
                 branch_id: "",
-                position: "Staff",
-                daily_rate: 500,
+                position: "",
+                daily_rate: "",
               });
             }}
             className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -546,10 +632,11 @@ function BranchAssignments() {
           </button>,
           <button
             key="submit"
-            onClick={addAssignment}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors ml-2"
+            onClick={handleAddAssignment}
+            disabled={addMutation.isPending}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors ml-2 disabled:opacity-50"
           >
-            Add Assignment
+            {addMutation.isPending ? "Adding..." : "Add Assignment"}
           </button>,
         ]}
         width={600}
@@ -557,17 +644,26 @@ function BranchAssignments() {
         <div className="space-y-4 py-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Staff Member <span className="text-red-500">*</span>
+              User <span className="text-red-500">*</span>
             </label>
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               value={form.user_id}
-              onChange={(e) => setForm({ ...form, user_id: e.target.value })}
+              onChange={(e) => {
+                const userId = e.target.value;
+                const selectedUser = allUsers.find(u => u.id === Number(userId));
+                setForm({ 
+                  ...form, 
+                  user_id: userId,
+                  position: selectedUser?.role === 'delivery_rider' ? 'Delivery Rider' : 'Staff',
+                  daily_rate: selectedUser?.role === 'delivery_rider' ? 400 : 500,
+                });
+              }}
             >
-              <option value="">Select Staff Member</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.firstname} {s.lastname} ({s.username})
+              <option value="">Select User</option>
+              {allUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.firstname} {u.lastname} ({u.username}) - {u.role === 'delivery_rider' ? 'Rider' : 'Staff'}
                 </option>
               ))}
             </select>
@@ -631,8 +727,8 @@ function BranchAssignments() {
           setEditForm({
             user_id: "",
             branch_id: "",
-            position: "Staff",
-            daily_rate: 500,
+            position: "",
+            daily_rate: "",
           });
         }}
         footer={[
@@ -644,8 +740,8 @@ function BranchAssignments() {
               setEditForm({
                 user_id: "",
                 branch_id: "",
-                position: "Staff",
-                daily_rate: 500,
+                position: "",
+                daily_rate: "",
               });
             }}
             className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -654,10 +750,11 @@ function BranchAssignments() {
           </button>,
           <button
             key="submit"
-            onClick={updateAssignment}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ml-2"
+            onClick={handleUpdateAssignment}
+            disabled={updateMutation.isPending}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ml-2 disabled:opacity-50"
           >
-            Update Assignment
+            {updateMutation.isPending ? "Updating..." : "Update Assignment"}
           </button>,
         ]}
         width={600}
@@ -665,17 +762,26 @@ function BranchAssignments() {
         <div className="space-y-4 py-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Staff Member <span className="text-red-500">*</span>
+              User <span className="text-red-500">*</span>
             </label>
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               value={editForm.user_id}
-              onChange={(e) => setEditForm({ ...editForm, user_id: e.target.value })}
+              onChange={(e) => {
+                const userId = e.target.value;
+                const selectedUser = allUsers.find(u => u.id === Number(userId));
+                setEditForm({ 
+                  ...editForm, 
+                  user_id: userId,
+                  position: selectedUser?.role === 'delivery_rider' ? 'Delivery Rider' : 'Staff',
+                  daily_rate: selectedUser?.role === 'delivery_rider' ? 400 : 500,
+                });
+              }}
             >
-              <option value="">Select Staff Member</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.firstname} {s.lastname} ({s.username})
+              <option value="">Select User</option>
+              {allUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.firstname} {u.lastname} ({u.username}) - {u.role === 'delivery_rider' ? 'Rider' : 'Staff'}
                 </option>
               ))}
             </select>

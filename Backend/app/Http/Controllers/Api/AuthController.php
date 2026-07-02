@@ -35,12 +35,28 @@ class AuthController extends Controller
             return response()->json(['message' => 'Your account has been Disabled or invalid Credentials.'], 401);
         }
 
+        $mobileRoles = [User::ROLE_STAFF, User::ROLE_RIDER, User::ROLE_CUSTOMER];
+        if (! in_array($user->role, $mobileRoles, true)) {
+            return response()->json([
+                'message' => 'This account is not authorized for mobile access.',
+            ], 403);
+        }
+
+        $mobileUserType = match ($user->role) {
+            User::ROLE_RIDER => 'rider',
+            User::ROLE_CUSTOMER => 'customer',
+            default => 'staff',
+        };
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
-            'user' => $user->load('branchAssignments.branch'),
+            'user' => array_merge($user->load('branchAssignments.branch')->toArray(), [
+                'user_type' => $mobileUserType,
+            ]),
             'token' => $token,
             'role' => $user->role,
+            'user_type' => $mobileUserType,
         ]);
     }
 

@@ -2,6 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import api from './api';
 import { getUser, saveUser } from './userStorage';
 import { isNetworkError } from './network';
+import { normalizeUserType } from './userType';
 
 export function normalizeUser(user: any): any | null {
   if (!user) return null;
@@ -163,6 +164,12 @@ export async function resolveStaffBranch(
 
 export async function cacheStaffContextAfterLogin(user: any): Promise<any> {
   const normalized = normalizeUser(user) ?? user;
+
+  if (['rider', 'customer'].includes(normalizeUserType(normalized?.userType || normalized?.role) || '')) {
+    await saveUser(normalized);
+    return normalized;
+  }
+
   await saveUser(normalized);
   console.log('[STAFF CONTEXT] Caching user data for offline use');
   

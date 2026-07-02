@@ -1,23 +1,23 @@
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/authContext';
+import { getDashboardPath } from '../lib/userType';
 import { ActivityIndicator, View } from 'react-native';
 
 export default function AuthRouter({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, userType } = useAuth();
 
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated) {
-        // User is logged in, redirect to Staff Dashboard
-        router.replace('/Staff/Dashboard');
+        router.replace(getDashboardPath(userType || 'staff'));
       } else {
         // User is not logged in, show Login screen
         router.replace('/Login');
       }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, userType, router]);
 
   // Show loading indicator while checking authentication
   if (isLoading) {

@@ -6,7 +6,6 @@ import {
   StockOutlined,
   ProductOutlined,
   TeamOutlined, 
-  EyeOutlined,
   ReloadOutlined
 } from "@ant-design/icons";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -406,13 +405,7 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => navigate(`/branch/${branch.id}`)}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition-all duration-300 font-medium flex items-center justify-center gap-2"
-                  >
-                    <EyeOutlined />
-                    View Sales Report
-                  </button>
+                  {/* Removed View Sales Report Button */}
                 </div>
               </div>
             ))}
@@ -427,94 +420,93 @@ function Dashboard() {
 
       {/* Add Branch Modal - Tailwind Version */}
       {isModalOpen && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center">
-    {/* Backdrop */}
-    <div 
-      className="absolute inset-0 backdrop-blur-sm animate-fadeIn"
-      onClick={handleClose}
-    />
-    
-    {/* Modal */}
-    <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4 animate-fadeInScale">
-      {/* Close button with rotate animation */}
-      <button
-        onClick={handleClose}
-        className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-      
-      {/* Header */}
-      <div className="p-6 pr-12">
-        <div className="flex items-center gap-2">
-          <PlusOutlined className="text-green-600 text-xl" />
-          <span className="text-xl font-semibold text-gray-900">Add New Branch</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 backdrop-blur-sm animate-fadeIn"
+            onClick={handleClose}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4 animate-fadeInScale">
+            {/* Close button with rotate animation */}
+            <button
+              onClick={handleClose}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            
+            {/* Header */}
+            <div className="p-6 pr-12">
+              <div className="flex items-center gap-2">
+                <PlusOutlined className="text-green-600 text-xl" />
+                <span className="text-xl font-semibold text-gray-900">Add New Branch</span>
+              </div>
+            </div>
+            
+            {/* Body */}
+            <div className="px-6 pb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Branch Name
+              </label>
+              <input
+                type="text"
+                placeholder="Enter branch name (e.g., 'Downtown Branch')"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+                autoFocus
+              />
+              
+              <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
+                Branch Code
+              </label>
+              <input
+                type="text"
+                placeholder="Enter branch code (e.g., MAIN)"
+                value={formCode}
+                onChange={(e) => setFormCode(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+              />
+
+              <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
+                Branch Address
+              </label>
+              <textarea
+                placeholder="Enter branch address (e.g., 123 Main St, City)"
+                value={formAddress}
+                onChange={(e) => setFormAddress(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"
+              />
+
+              <p className="text-xs text-gray-500 mt-3">
+                This information will be visible to all staff members and customers
+              </p>
+            </div>
+            
+            {/* Footer */}
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+              <button
+                onClick={handleClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-all duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-all duration-200 transform hover:scale-105 active:scale-95"
+              >
+                Create Branch
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-      
-      {/* Body */}
-      <div className="px-6 pb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Branch Name
-        </label>
-        <input
-          type="text"
-          placeholder="Enter branch name (e.g., 'Downtown Branch')"
-          value={formName}
-          onChange={(e) => setFormName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-          autoFocus
-        />
-        
-        <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
-          Branch Code
-        </label>
-        <input
-          type="text"
-          placeholder="Enter branch code (e.g., MAIN)"
-          value={formCode}
-          onChange={(e) => setFormCode(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-        />
-
-        <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
-          Branch Address
-        </label>
-        <textarea
-          placeholder="Enter branch address (e.g., 123 Main St, City)"
-          value={formAddress}
-          onChange={(e) => setFormAddress(e.target.value)}
-          rows={2}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"
-        />
-
-        <p className="text-xs text-gray-500 mt-3">
-          This information will be visible to all staff members and customers
-        </p>
-      </div>
-      
-      {/* Footer */}
-      <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-        <button
-          onClick={handleClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-all duration-200"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-all duration-200 transform hover:scale-105 active:scale-95"
-        >
-          Create Branch
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
+      )}
     </div>
   );
 }

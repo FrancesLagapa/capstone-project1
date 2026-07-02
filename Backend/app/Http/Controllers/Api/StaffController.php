@@ -15,7 +15,11 @@ class StaffController extends Controller
 {
     public function index(Request $request)
     {
-        $query = User::where('role', 'staff');
+        // Get both staff and delivery riders
+        $query = User::whereIn('role', ['staff', 'delivery_rider'])
+            ->with(['branchAssignments' => function ($q) {
+                $q->where('is_active', true);
+            }, 'branchAssignments.branch']);
 
         if ($request->has('branch_id')) {
             $query->whereHas('branchAssignments', function ($q) use ($request) {
@@ -26,20 +30,41 @@ class StaffController extends Controller
         if ($request->has('search')) {
             $query->where(function ($q) use ($request) {
                 $q->where('firstname', 'like', '%' . $request->search . '%')
-                    ->orWhere('lastname', 'like', '%' . $request->search . '%')
-                    ->orWhere('username', 'like', '%' . $request->search . '%');
+                  ->orWhere('lastname', 'like', '%' . $request->search . '%')
+                  ->orWhere('username', 'like', '%' . $request->search . '%');
             });
         }
 
-        // Support pagination control: if paginate=false or all=true, get all records
+        // Check if pagination is disabled
         $paginate = !$request->has('paginate') || $request->paginate !== 'false';
-        $perPage = $request->has('per_page') ? (int)$request->per_page : 5;
 
         if ($paginate) {
-            $staff = $query->with(['branchAssignments.branch'])->paginate($perPage);
-        } else {
-            $staff = $query->with(['branchAssignments.branch'])->get();
+            // Return paginated results
+            $staff = $query->paginate($request->per_page ?? 5);
+            
+            // Transform the items in the paginator
+            $staff->getCollection()->transform(function ($user) {
+                $assignment = $user->branchAssignments->first();
+                $user->position = $assignment ? $assignment->position : ($user->role === 'delivery_rider' ? 'Rider' : 'Staff');
+                // Add a flag to indicate if user can be assigned to a branch
+                $user->can_be_assigned = $user->role === 'staff';
+                return $user;
+            });
+            
+            return response()->json($staff);
         }
+
+        // Return all users without pagination
+        $staff = $query->get();
+        
+        // Transform the collection
+        $staff->transform(function ($user) {
+            $assignment = $user->branchAssignments->first();
+            $user->position = $assignment ? $assignment->position : ($user->role === 'delivery_rider' ? 'Rider' : 'Staff');
+            // Add a flag to indicate if user can be assigned to a branch
+            $user->can_be_assigned = $user->role === 'staff';
+            return $user;
+        });
 
         return response()->json($staff);
     }
@@ -63,28 +88,46 @@ class StaffController extends Controller
             'middlename' => 'nullable|string',
             'address' => 'nullable|string',
             'branch_id' => 'nullable|exists:branches,id',
-            'position' => 'nullable|string',
+            'position' => 'nullable|string|in:Staff,Rider',
             'daily_rate' => 'nullable|numeric|min:0',
         ]);
 
         $plainPassword = $validated['password'] ?? 'default123';
-        $validated['password'] = Hash::make($plainPassword);
-        $validated['role'] = 'staff';
-        $validated['is_active'] = true;
-        // Keep compatibility with schemas where email is non-null & unique.
-        $validated['email'] = $validated['email'] ?? ($validated['username'] . '@newmoon.local');
+        
+        // Set user role based on position
+        $position = $validated['position'] ?? 'Staff';
+        $userRole = ($position === 'Rider') ? 'delivery_rider' : 'staff';
+        
+        // Prepare user data
+        $userData = [
+            'username' => $validated['username'],
+            'password' => Hash::make($plainPassword),
+            'firstname' => $validated['firstname'],
+            'lastname' => $validated['lastname'],
+            'middlename' => $validated['middlename'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'email' => $validated['email'] ?? ($validated['username'] . '@newmoon.local'),
+            'role' => $userRole,
+            'is_active' => true,
+        ];
+        
+        // Store position for staff assignment
+        $position = $validated['position'] ?? 'Staff';
+        $branchId = $validated['branch_id'] ?? null;
+        $dailyRate = $validated['daily_rate'] ?? 500;
 
         DB::beginTransaction();
 
         try {
-            $staff = User::create($validated);
+            $staff = User::create($userData);
 
-            if ($request->has('branch_id') && $request->branch_id) {
+            // Only create assignment if user is staff and branch is provided
+            if ($userRole === 'staff' && $branchId) {
                 StaffAssignment::create([
                     'user_id' => $staff->id,
-                    'branch_id' => $request->branch_id,
-                    'position' => $request->position ?? 'Staff',
-                    'daily_rate' => $request->daily_rate ?? 500,
+                    'branch_id' => $branchId,
+                    'position' => $position,
+                    'daily_rate' => $dailyRate,
                     'is_active' => true,
                 ]);
             }
@@ -101,7 +144,7 @@ class StaffController extends Controller
     public function show($id)
     {
         try {
-            $staff = User::where('role', 'staff')
+            $staff = User::whereIn('role', ['staff', 'delivery_rider'])
                 ->with(['branchAssignments.branch'])
                 ->findOrFail($id);
 
@@ -126,30 +169,44 @@ class StaffController extends Controller
             'middlename' => 'nullable|string',
             'address' => 'nullable|string',
             'branch_id' => 'nullable|exists:branches,id',
-            'position' => 'nullable|string',
+            'position' => 'nullable|string|in:Staff,Rider',
             'daily_rate' => 'nullable|numeric|min:0',
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $staff->update($validated);
+        // Update user role based on position if provided
+        if (isset($validated['position'])) {
+            $validated['role'] = ($validated['position'] === 'Rider') ? 'delivery_rider' : 'staff';
+        }
 
-        if ($request->has('branch_id') || $request->has('position') || $request->has('daily_rate')) {
-            $assignment = StaffAssignment::where('user_id', $id)->first();
+        // Remove position from user update data (it's stored in staff_assignments)
+        $userData = $validated;
+        unset($userData['position']);
+        unset($userData['branch_id']);
+        unset($userData['daily_rate']);
 
-            if ($assignment) {
-                $assignment->update([
-                    'branch_id' => $request->branch_id ?? $assignment->branch_id,
-                    'position' => $request->position ?? $assignment->position,
-                    'daily_rate' => $request->daily_rate ?? $assignment->daily_rate,
-                ]);
-            } elseif ($request->branch_id) {
-                StaffAssignment::create([
-                    'user_id' => $id,
-                    'branch_id' => $request->branch_id,
-                    'position' => $request->position ?? 'Staff',
-                    'daily_rate' => $request->daily_rate ?? 500,
-                    'is_active' => true,
-                ]);
+        $staff->update($userData);
+
+        // Only update assignment if user is staff
+        if ($staff->role === 'staff') {
+            if ($request->has('branch_id') || $request->has('position') || $request->has('daily_rate')) {
+                $assignment = StaffAssignment::where('user_id', $id)->first();
+
+                if ($assignment) {
+                    $assignment->update([
+                        'branch_id' => $request->branch_id ?? $assignment->branch_id,
+                        'position' => $request->position ?? $assignment->position,
+                        'daily_rate' => $request->daily_rate ?? $assignment->daily_rate,
+                    ]);
+                } elseif ($request->has('branch_id') && $request->branch_id) {
+                    StaffAssignment::create([
+                        'user_id' => $id,
+                        'branch_id' => $request->branch_id,
+                        'position' => $request->position ?? 'Staff',
+                        'daily_rate' => $request->daily_rate ?? 500,
+                        'is_active' => true,
+                    ]);
+                }
             }
         }
 
@@ -176,4 +233,3 @@ class StaffController extends Controller
         }
     }
 }
-

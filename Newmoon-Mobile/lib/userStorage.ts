@@ -8,6 +8,7 @@ export type OfflineCredentials = {
   password: string;
   firstname?: string;
   lastname?: string;
+  userType?: 'staff' | 'rider' | 'customer';
 };
 
 export async function saveUser(user: unknown): Promise<void> {
@@ -28,10 +29,22 @@ export async function deleteUser(): Promise<void> {
   await deleteSecureItem(USER_KEY);
 }
 
-export async function saveOfflineCredentials(username: string, password: string, firstname?: string, lastname?: string): Promise<void> {
-  const creds = { username: username.trim(), password, firstname, lastname };
+export async function saveOfflineCredentials(
+  username: string, 
+  password: string, 
+  firstname?: string, 
+  lastname?: string,
+  userType?: 'staff' | 'rider' | 'customer'
+): Promise<void> {
+  const creds = { 
+    username: username.trim(), 
+    password, 
+    firstname, 
+    lastname,
+    userType: userType || 'staff' // Default to 'staff' if not provided
+  };
   await setSecureItem(OFFLINE_CREDS_KEY, JSON.stringify(creds));
-  console.log('[OFFLINE CREDS] Saved credentials for username:', username);
+  console.log('[OFFLINE CREDS] Saved credentials for username:', username, 'userType:', userType || 'staff');
 }
 
 export async function getOfflineCredentials(): Promise<OfflineCredentials | null> {
@@ -42,7 +55,7 @@ export async function getOfflineCredentials(): Promise<OfflineCredentials | null
   }
   try {
     const creds = JSON.parse(raw) as OfflineCredentials;
-    console.log('[OFFLINE CREDS] Retrieved credentials for username:', creds.username);
+    console.log('[OFFLINE CREDS] Retrieved credentials for username:', creds.username, 'userType:', creds.userType || 'staff');
     return creds;
   } catch (error) {
     console.error('[OFFLINE CREDS] Error parsing credentials:', error);
@@ -57,12 +70,43 @@ export async function deleteOfflineCredentials(): Promise<void> {
 
 export async function validateOfflineLogin(
   username: string,
-  password: string
+  password: string,
+  userType?: 'staff' | 'rider' | 'customer'
 ): Promise<boolean> {
   const creds = await getOfflineCredentials();
   if (!creds) {
     return false;
   }
   const trimmedUsername = username.trim();
-  return creds.username === trimmedUsername && creds.password === password;
+  
+  // Validate username and password
+  const isValid = creds.username === trimmedUsername && creds.password === password;
+  
+  // If userType is provided, also validate that the stored userType matches
+  if (isValid && userType) {
+    const storedUserType = creds.userType || 'staff';
+    if (storedUserType !== userType) {
+      console.log('[OFFLINE CREDS] UserType mismatch. Expected:', userType, 'Found:', storedUserType);
+      return false;
+    }
+  }
+  
+  return isValid;
+}
+
+// Optional: Add a function to get the stored user type
+export async function getStoredUserType(): Promise<'staff' | 'rider' | 'customer' | null> {
+  const creds = await getOfflineCredentials();
+  if (!creds) return null;
+  return creds.userType || 'staff';
+}
+
+// Optional: Add a function to update just the user type
+export async function updateStoredUserType(userType: 'staff' | 'rider' | 'customer'): Promise<void> {
+  const creds = await getOfflineCredentials();
+  if (creds) {
+    const updatedCreds = { ...creds, userType };
+    await setSecureItem(OFFLINE_CREDS_KEY, JSON.stringify(updatedCreds));
+    console.log('[OFFLINE CREDS] Updated userType to:', userType);
+  }
 }

@@ -1,18 +1,19 @@
+// app/rider/_layout.tsx
 import { Tabs } from 'expo-router';
 import { View, Text } from 'react-native';
 import { Ionicons, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import OfflineBanner from '../../../components/OfflineBanner';
 
-export default function StaffTabsLayout() {
+export default function RiderTabsLayout() {
     return (
         <View className="flex-1 bg-black">
             <OfflineBanner />
             <Tabs
                 screenOptions={{
-                    tabBarActiveTintColor: '#3B82F6',
+                    tabBarActiveTintColor: '#10B981',
                     tabBarInactiveTintColor: '#9CA3AF',
                     tabBarStyle: {
-                        backgroundColor: '#FFFFFF',
+                        backgroundColor: '#1F2937',
                         borderTopWidth: 0,
                         height: 75,
                         paddingBottom: 8,
@@ -22,7 +23,7 @@ export default function StaffTabsLayout() {
                             width: 0,
                             height: -3,
                         },
-                        shadowOpacity: 0.08,
+                        shadowOpacity: 0.3,
                         shadowRadius: 8,
                         elevation: 8,
                         borderRadius: 20,
@@ -53,7 +54,7 @@ export default function StaffTabsLayout() {
                                 <View style={{ 
                                     padding: 4, 
                                     borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
                                 }}>
                                     <Ionicons 
                                         name={focused ? 'home' : 'home-outline'} 
@@ -67,42 +68,19 @@ export default function StaffTabsLayout() {
                 />
                 
                 <Tabs.Screen
-                    name="Attendance"
+                    name="Orders"
                     options={{
-                        title: 'Attendance',
-                        tabBarLabel: 'Attendance',
+                        title: 'Orders',
+                        tabBarLabel: 'Orders',
                         tabBarIcon: ({ color, focused }) => (
                             <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                                 <View style={{ 
                                     padding: 4, 
                                     borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
-                                }}>
-                                    <FontAwesome5 
-                                        name={focused ? 'calendar-check' : 'calendar-alt'} 
-                                        size={22} 
-                                        color={color} 
-                                    />
-                                </View>
-                            </View>
-                        ),
-                    }}
-                />
-                
-                <Tabs.Screen
-                    name="PointOfSales"
-                    options={{
-                        title: 'Point of Sales',
-                        tabBarLabel: 'POS',
-                        tabBarIcon: ({ color, focused }) => (
-                            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                                <View style={{ 
-                                    padding: 4, 
-                                    borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
                                 }}>
                                     <MaterialIcons 
-                                        name={focused ? 'point-of-sale' : 'shopping-cart'} 
+                                        name={focused ? 'list-alt' : 'list-alt'} 
                                         size={24} 
                                         color={color} 
                                     />
@@ -113,16 +91,62 @@ export default function StaffTabsLayout() {
                 />
                 
                 <Tabs.Screen
-                    name="SalaryAdvance"
+                    name="Map"
                     options={{
-                        title: 'Cash Advance',
-                        tabBarLabel: 'Cash Adv.',
+                        title: 'Map',
+                        tabBarLabel: 'Map',
                         tabBarIcon: ({ color, focused }) => (
                             <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                                 <View style={{ 
                                     padding: 4, 
                                     borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
+                                }}>
+                                    <FontAwesome5 
+                                        name={focused ? 'map' : 'map'} 
+                                        size={22} 
+                                        color={color} 
+                                    />
+                                </View>
+                            </View>
+                        ),
+                    }}
+                />
+                
+                <Tabs.Screen
+                    name="History"
+                    options={{
+                        title: 'History',
+                        tabBarLabel: 'History',
+                        tabBarIcon: ({ color, focused }) => (
+                            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                                <View style={{ 
+                                    padding: 4, 
+                                    borderRadius: 25,
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
+                                }}>
+                                    <Ionicons 
+                                        name={focused ? 'time' : 'time-outline'} 
+                                        size={24} 
+                                        color={color} 
+                                    />
+                                </View>
+                            </View>
+                        ),
+                    }}
+                />
+                
+                <Tabs.Screen
+                    name="Earnings"
+                    options={{
+                        title: 'Earnings',
+                        tabBarLabel: 'Earnings',
+                        tabBarIcon: ({ color, focused }) => (
+                            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                                <View style={{ 
+                                    padding: 4, 
+                                    borderRadius: 25,
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
                                 }}>
                                     <MaterialIcons 
                                         name={focused ? 'account-balance-wallet' : 'account-balance-wallet'} 
@@ -136,52 +160,6 @@ export default function StaffTabsLayout() {
                 />
                 
                 <Tabs.Screen
-                    name="StockRequest"
-                    options={{
-                        title: 'Stock Request',
-                        tabBarLabel: 'Stock Req.',
-                        tabBarIcon: ({ color, focused }) => (
-                            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                                <View style={{ 
-                                    padding: 4, 
-                                    borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
-                                }}>
-                                    <MaterialIcons 
-                                        name={focused ? 'inventory' : 'inventory-2'} 
-                                        size={24} 
-                                        color={color} 
-                                    />
-                                </View>
-                            </View>
-                        ),
-                    }}
-                />
-                
-                <Tabs.Screen
-                    name="PullOut"
-                    options={{
-                        title: 'Pull Out',
-                        tabBarLabel: 'Pull Out',
-                        tabBarIcon: ({ color, focused }) => (
-                            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                                <View style={{ 
-                                    padding: 4, 
-                                    borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
-                                }}>
-                                    <MaterialIcons 
-                                        name={focused ? 'delete-outline' : 'delete'} 
-                                        size={24} 
-                                        color={color} 
-                                    />
-                                </View>
-                            </View>
-                        ),
-                    }}
-                />
-
-                <Tabs.Screen
                     name="Profile"
                     options={{
                         title: 'Profile',
@@ -191,7 +169,7 @@ export default function StaffTabsLayout() {
                                 <View style={{ 
                                     padding: 4, 
                                     borderRadius: 25,
-                                    backgroundColor: focused ? '#EFF6FF' : 'transparent'
+                                    backgroundColor: focused ? 'rgba(16, 185, 129, 0.2)' : 'transparent'
                                 }}>
                                     <Ionicons 
                                         name={focused ? 'person-circle' : 'person-circle-outline'} 

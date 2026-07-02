@@ -47,9 +47,8 @@ const SalesReport = () => {
     dayjs().endOf("month"),
   ]);
   const [groupBy, setGroupBy] = useState("daily");
-  const [selectedBranch, setSelectedBranch] = useState(null); // default to all branches
+  const [selectedBranch, setSelectedBranch] = useState(userBranchId); // default to user's branch
   const [branches, setBranches] = useState([]);
-  const [viewMode, setViewMode] = useState('branches'); // 'branches' or 'report'
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 15,
@@ -69,11 +68,14 @@ const SalesReport = () => {
         per_page: pagination.pageSize,
       };
 
-      if (selectedBranch) {
-        // If a branch is selected, filter by that branch
+      if (!isAdmin) {
+        // Non‑admins can only see their own branch
+        params.branch_id = userBranchId;
+      } else if (selectedBranch) {
+        // Admins can pick any branch (or none for all)
         params.branch_id = selectedBranch;
       }
-      // If selectedBranch is null, omit branch_id → get all branches
+      // If admin and selectedBranch is null, omit branch_id → get all branches
 
       const [salesRes, branchesRes] = await Promise.all([
         api.get("/reports/sales", { params }),
@@ -143,48 +145,15 @@ const SalesReport = () => {
     }
   };
 
-  // ---------- Fetch branches on mount ----------
+  // ---------- Auto‑fetch when filters change ----------
   useEffect(() => {
-    const fetchBranches = async () => {
-      try {
-        const branchesRes = await api.get("/branches");
-        setBranches(
-          Array.isArray(branchesRes.data)
-            ? branchesRes.data
-            : branchesRes.data?.data || []
-        );
-      } catch (err) {
-        console.error("[SalesReport] Error fetching branches:", err);
-      }
-    };
-    fetchBranches();
-  }, []);
-
-  // ---------- Auto‑fetch when filters change (only in report mode) ----------
-  useEffect(() => {
-    if (viewMode === 'report' && selectedBranch) {
-      fetchSalesReport(1);
-    }
+    fetchSalesReport(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange, groupBy, selectedBranch, viewMode]);
+  }, [dateRange, groupBy, selectedBranch, userBranchId, isAdmin]);
 
   // ---------- Table pagination handler ----------
   const handleTableChange = (pagination) => {
     fetchSalesReport(pagination.current);
-  };
-
-  // ---------- Handle branch selection ----------
-  const handleSelectBranch = (branch) => {
-    setSelectedBranch(branch.id);
-    setViewMode('report');
-  };
-
-  // ---------- Handle back to branches view ----------
-  const handleBackToBranches = () => {
-    setViewMode('branches');
-    setSelectedBranch(null);
-    setSalesData([]);
-    setSummary(null);
   };
 
   // ---------- Export CSV ----------
@@ -342,18 +311,11 @@ const SalesReport = () => {
                   <BarChartOutlined className="mr-2 text-blue-500" />
                   Sales Report
                 </Title>
-                <Text type="secondary">
-                  {viewMode === 'branches' ? 'Select a branch to view sales report' : 'Detailed sales analysis and trends'}
-                </Text>
+                <Text type="secondary">Detailed sales analysis and trends</Text>
               </Col>
               <Col>
                 <Space>
-                  {viewMode === 'report' && (
-                    <Button onClick={handleBackToBranches}>
-                      Back to Branches
-                    </Button>
-                  )}
-                  <Button icon={<DownloadOutlined />} onClick={handleExport} disabled={viewMode !== 'report'}>
+                  <Button icon={<DownloadOutlined />} onClick={handleExport}>
                     Export CSV
                   </Button>
                   <Button
@@ -361,7 +323,6 @@ const SalesReport = () => {
                     icon={<FileTextOutlined />}
                     onClick={fetchSalesReport}
                     loading={loading}
-                    disabled={viewMode !== 'report'}
                   >
                     Generate Report
                   </Button>
@@ -371,75 +332,54 @@ const SalesReport = () => {
           </Card>
         </Col>
 
-        {/* Branches View */}
-        {viewMode === 'branches' && (
-          <Col span={24}>
-            <Card variant="borderless" title="All Branches">
-              <Row gutter={[16, 16]}>
-                {branches.map((branch) => (
-                  <Col xs={24} sm={12} md={8} lg={6} key={branch.id}>
-                    <Card
-                      hoverable
-                      style={{ height: '100%' }}
-                      actions={[
-                        <Button
-                          type="primary"
-                          icon={<FileTextOutlined />}
-                          onClick={() => handleSelectBranch(branch)}
-                        >
-                          View Sales Report
-                        </Button>
-                      ]}
-                    >
-                      <Card.Meta
-                        title={branch.name}
-                        description={
-                          <div>
-                            <Text type="secondary">ID: {branch.id}</Text>
-                          </div>
-                        }
-                      />
-                    </Card>
-                  </Col>
-                ))}
-              </Row>
-            </Card>
-          </Col>
-        )}
-
-        {/* Report View */}
-        {viewMode === 'report' && (
-          <>
-            {/* Filters */}
-            <Col span={24}>
-              <Card variant="borderless" size="small">
-                <Space wrap>
-                  <Text strong>Date Range:</Text>
-                  <RangePicker
-                    value={dateRange}
-                    onChange={setDateRange}
-                    format="YYYY-MM-DD"
-                    allowClear={false}
-                  />
-                  <Divider orientation="vertical" />
-                  <Text strong>Group By:</Text>
-                  <Radio.Group
-                    value={groupBy}
-                    onChange={(e) => setGroupBy(e.target.value)}
-                  >
-                    <Radio.Button value="daily">Daily</Radio.Button>
-                    <Radio.Button value="weekly">Weekly</Radio.Button>
-                    <Radio.Button value="monthly">Monthly</Radio.Button>
-                    <Radio.Button value="detail">Detail</Radio.Button>
-                  </Radio.Group>
-                  <Divider orientation="vertical" />
-                  <Text strong>Branch:</Text>
-                  <Text strong>
-                    {branches.find((b) => b.id === selectedBranch)?.name || 'Selected Branch'}
-                  </Text>
-                </Space>
-              </Card>
-            </Col>
+        {/* Filters */}
+        <Col span={24}>
+          <Card variant="borderless" size="small">
+            <Space wrap>
+              <Text strong>Date Range:</Text>
+              <RangePicker
+                value={dateRange}
+                onChange={setDateRange}
+                format="YYYY-MM-DD"
+                allowClear={false}
+              />
+              <Divider orientation="vertical" />
+              <Text strong>Group By:</Text>
+              <Radio.Group
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value)}
+              >
+                <Radio.Button value="daily">Daily</Radio.Button>
+                <Radio.Button value="weekly">Weekly</Radio.Button>
+                <Radio.Button value="monthly">Monthly</Radio.Button>
+                <Radio.Button value="detail">Detail</Radio.Button>
+              </Radio.Group>
+              <Divider orientation="vertical" />
+              <Text strong>Branch:</Text>
+              {isAdmin ? (
+                <Select
+                  style={{ width: 200 }}
+                  placeholder="All Branches"
+                  allowClear
+                  value={selectedBranch}
+                  onChange={setSelectedBranch}
+                >
+                  {branches.map((branch) => (
+                    <Select.Option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              ) : (
+                // Non‑admins see their branch name as a static text
+                <Text strong>
+                  {branches.find((b) => b.id === userBranchId)?.name ||
+                    "Your Branch"}
+                </Text>
+              )}
+            </Space>
+          </Card>
+        </Col>
 
         {/* Summary Stats */}
         {summary && (
@@ -539,8 +479,6 @@ const SalesReport = () => {
             )}
           </Card>
         </Col>
-          </>
-        )}
       </Row>
     </div>
   );

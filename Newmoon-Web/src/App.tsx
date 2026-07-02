@@ -15,9 +15,9 @@ import EmployeeTracker from "./Admin/EmployeeTracker.jsx";
 import BranchMap from "./Admin/BranchMap.jsx";
 import RequestAdmin from "./Admin/RequestAdmin.jsx";
 import PullOutAdmin from "./Admin/PullOutAdmin.jsx";
+import Payroll from "./Admin/Payroll.jsx";
 
 // Reports
-
 import SalesReport from "./Reports/SalesReport.jsx";
 import InventoryReport from "./Reports/InventoryReport.jsx";
 import AttendanceReport from "./Reports/AttendanceReport.jsx";
@@ -27,8 +27,6 @@ import PullOutReport from "./Reports/PullOutReport.jsx";
 
 // Auth
 import ProtectedRoute from "./ProtectedRoute.jsx";
-import Payroll from "./Admin/Payroll.jsx";
-
 
 function App() {
   return (
@@ -39,7 +37,7 @@ function App() {
       {/* Public */}
       <Route path="/login" element={<Login />} />
 
-      {/* Protected */}
+      {/* Protected Routes */}
       <Route
         path="/dashboard"
         element={
@@ -107,11 +105,6 @@ function App() {
       />
 
       <Route
-        path="/products"
-        element={<Navigate to="/inventory" replace />}
-      />
-
-      <Route
         path="/staff"
         element={
           <ProtectedRoute>
@@ -133,6 +126,7 @@ function App() {
         }
       />
 
+      {/* Branch Assignments - corrected path */}
       <Route
         path="/branch-assign"
         element={
@@ -144,13 +138,14 @@ function App() {
         }
       />
 
+      {/* Redirect from old path to new */}
       <Route
         path="/branch-assignments"
         element={<Navigate to="/branch-assign" replace />}
       />
 
       <Route
-        path="/branch-supply"
+        path="/RequestAdmin"
         element={
           localStorage.getItem("role") === "admin" ? (
             <ProtectedRoute>
@@ -162,11 +157,6 @@ function App() {
             <Navigate to="/dashboard" replace />
           )
         }
-      />
-
-      <Route
-        path="/request"
-        element={<Navigate to="/branch-supply" replace />}
       />
 
       <Route
@@ -184,39 +174,7 @@ function App() {
         }
       />
 
-      <Route
-        path="/pull-out-admin"
-        element={
-          localStorage.getItem("role") === "admin" ? (
-            <ProtectedRoute>
-              <Layout>
-                <PullOutAdmin />
-              </Layout>
-            </ProtectedRoute>
-          ) : (
-            <Navigate to="/dashboard" replace />
-          )
-        }
-      />
-
-      <Route
-        path="/branch-info"
-        element={
-          localStorage.getItem("role") === "admin" ? (
-            <ProtectedRoute>
-              <Layout>
-                <div className="p-6">
-                  <h1 className="text-2xl font-bold">Branch Information</h1>
-                  <p className="text-gray-500 mt-2">This page is under development</p>
-                </div>
-              </Layout>
-            </ProtectedRoute>
-          ) : (
-            <Navigate to="/dashboard" replace />
-          )
-        }
-      />
-
+      {/* Reports Routes */}
       <Route
         path="/reports/sales"
         element={
@@ -321,6 +279,9 @@ function App() {
           )
         }
       />
+
+      {/* Catch all - redirect to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

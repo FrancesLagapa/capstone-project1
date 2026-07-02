@@ -325,168 +325,232 @@ class ReportController extends Controller
      * Params: month (YYYY-MM), branch_id (optional)
      */
     public function payroll(Request $request)
-    {
-        $validated = $request->validate([
-            'month' => ['required', 'regex:/^\d{4}-\d{2}$/'],
-            'branch_id' => 'nullable|exists:branches,id',
-            'page' => 'nullable|integer|min:1',
-            'per_page' => 'nullable|integer|min:1|max:100',
-        ]);
+{
+    $validated = $request->validate([
+        'month' => ['required', 'regex:/^\d{4}-\d{2}$/'],
+        'branch_id' => 'nullable|exists:branches,id',
+        'page' => 'nullable|integer|min:1',
+        'per_page' => 'nullable|integer|min:1|max:100',
+    ]);
 
-        $perPage = $validated['per_page'] ?? 5;
-        $page = $validated['page'] ?? 1;
+    $perPage = (int) ($validated['per_page'] ?? 15);
+    $page = (int) ($validated['page'] ?? 1);
 
-        $monthStr = $validated['month'];
-        $start = Carbon::createFromFormat('Y-m', $monthStr)->startOfMonth()->toDateString();
-        $end = Carbon::createFromFormat('Y-m', $monthStr)->endOfMonth()->toDateString();
-        $monthNum = (int) Carbon::createFromFormat('Y-m', $monthStr)->month;
-        $yearNum = (int) Carbon::createFromFormat('Y-m', $monthStr)->year;
+    $monthStr = $validated['month'];
+    $start = Carbon::createFromFormat('Y-m', $monthStr)->startOfMonth()->toDateString();
+    $end = Carbon::createFromFormat('Y-m', $monthStr)->endOfMonth()->toDateString();
+    $monthNum = (int) Carbon::createFromFormat('Y-m', $monthStr)->month;
+    $yearNum = (int) Carbon::createFromFormat('Y-m', $monthStr)->year;
 
-        $query = Attendance::with(['user.branchAssignments', 'branch'])
-            ->whereBetween('date', [$start, $end]);
+    $query = Attendance::with(['user.branchAssignments', 'branch'])
+        ->whereBetween('date', [$start, $end]);
 
-        if ($request->has('branch_id')) {
-            $query->where('branch_id', $validated['branch_id']);
-        }
+    if ($request->filled('branch_id')) {
+        $query->where('branch_id', $validated['branch_id']);
+    }
 
-        $attendance = $query->get();
+    $attendance = $query->get();
 
-        // Bulk-load deductions & incentives for the month
-        $userIds = $attendance->pluck('user_id')->unique()->filter()->values();
-        $deductionsByUser = StaffDeduction::whereIn('user_id', $userIds)
-            ->where('month', $monthNum)
-            ->where('year', $yearNum)
-            ->get()
-            ->keyBy('user_id');
-
-        $incentivesByUser = StaffIncentive::whereIn('user_id', $userIds)
-            ->where('month', $monthNum)
-            ->where('year', $yearNum)
-            ->get()
-            ->keyBy('user_id');
-
-        // Group by user for payroll summary
-        $payrollByUser = [];
-        foreach ($attendance as $record) {
-            $userId = $record->user_id;
-            $assignment = $record->user->branchAssignments->first();
-            $dailyRate = $assignment ? $assignment->daily_rate : 500;
-
-            // Calculate hours worked
-            if ($record->time_in && $record->time_out) {
-                $timeIn = Carbon::parse($record->time_in);
-                $timeOut = Carbon::parse($record->time_out);
-                $hoursWorked = $timeIn->diffInHours($timeOut);
-            } else {
-                $hoursWorked = 0;
-            }
-
-            // Calculate earnings (12-hour workday: 9 AM to 9 PM)
-            if ($hoursWorked <= 12) {
-                $dailyEarnings = ($hoursWorked / 12) * $dailyRate;
-            } else {
-                $overtimeHours = $hoursWorked - 12;
-                $overtimeRate = ($dailyRate / 12) * 1.25;
-                $dailyEarnings = $dailyRate + ($overtimeHours * $overtimeRate);
-            }
-
-            // Get deductions and incentives for the month
-            $deductions = $deductionsByUser->get($userId);
-            $incentives = $incentivesByUser->get($userId);
-
-            // Calculate daily deductions
-            $dailyDeductions = 0;
-            if ($deductions) {
-                $dailyDeductions += ($deductions->sss / 22);
-                $dailyDeductions += ($deductions->philhealth / 22);
-                $dailyDeductions += ($deductions->pagibig / 22);
-                $dailyDeductions += ($deductions->cash_advance / 22);
-            }
-
-            // Late deductions
-            if ($record->is_late) {
-                $dailyDeductions += $record->late_minutes * 5;
-            }
-
-            // Daily incentives
-            $dailyIncentives = 0;
-            if ($incentives && $incentives->perfect_attendance && !$record->is_late) {
-                $dailyIncentives += 500 / 22;
-            }
-
-            $netPay = $dailyEarnings - $dailyDeductions + $dailyIncentives;
-
-            if (!isset($payrollByUser[$userId])) {
-                $payrollByUser[$userId] = [
-                    'user_id' => $userId,
-                    'staff_name' => $record->user->firstname . ' ' . $record->user->lastname,
-                    'position' => $assignment ? $assignment->position : 'Staff',
-                    'branch' => $record->branch->name ?? 'N/A',
-                    'days_worked' => 0,
-                    'total_hours' => 0,
-                    'hourly_rate' => $dailyRate / 12,
-                    'gross_pay' => 0,
-                    'sss_deduction' => 0,
-                    'philhealth_deduction' => 0,
-                    'pagibig_deduction' => 0,
-                    'cash_advance_deduction' => 0,
-                    'late_deduction' => 0,
-                    'incentives' => 0,
-                    'total_deductions' => 0,
-                    'net_pay' => 0,
-                    'late_count' => 0,
-                ];
-            }
-
-            $payrollByUser[$userId]['days_worked']++;
-            $payrollByUser[$userId]['total_hours'] += $hoursWorked;
-            $payrollByUser[$userId]['gross_pay'] += $dailyEarnings;
-            
-            if ($deductions) {
-                $payrollByUser[$userId]['sss_deduction'] += ($deductions->sss / 22);
-                $payrollByUser[$userId]['philhealth_deduction'] += ($deductions->philhealth / 22);
-                $payrollByUser[$userId]['pagibig_deduction'] += ($deductions->pagibig / 22);
-                $payrollByUser[$userId]['cash_advance_deduction'] += ($deductions->cash_advance / 22);
-            }
-            
-            if ($record->is_late) {
-                $payrollByUser[$userId]['late_deduction'] += ($record->late_minutes * 5);
-                $payrollByUser[$userId]['late_count']++;
-            }
-            
-            $payrollByUser[$userId]['incentives'] += $dailyIncentives;
-            $payrollByUser[$userId]['total_deductions'] = $payrollByUser[$userId]['sss_deduction'] + 
-                $payrollByUser[$userId]['philhealth_deduction'] + 
-                $payrollByUser[$userId]['pagibig_deduction'] + 
-                $payrollByUser[$userId]['cash_advance_deduction'] + 
-                $payrollByUser[$userId]['late_deduction'];
-            $payrollByUser[$userId]['net_pay'] += $netPay;
-        }
-
-        $totalPayroll = array_sum(array_column($payrollByUser, 'net_pay'));
-        $payrollArray = array_values($payrollByUser);
-
-        // Manual pagination for payroll array
-        $offset = ($page - 1) * $perPage;
-        $paginatedData = array_slice($payrollArray, $offset, $perPage);
-        $total = count($payrollArray);
-        $lastPage = (int) ceil($total / $perPage);
-
+    // If no attendance records, return empty response
+    if ($attendance->isEmpty()) {
         return response()->json([
-            'data' => $paginatedData,
+            'data' => [],
             'pagination' => [
                 'current_page' => $page,
-                'last_page' => $lastPage,
+                'last_page' => 1,
                 'per_page' => $perPage,
-                'total' => $total,
+                'total' => 0,
             ],
             'summary' => [
-                'total_staff' => count($payrollByUser),
-                'total_payroll' => $totalPayroll,
-                'total_hours' => array_sum(array_column($payrollByUser, 'total_hours')),
+                'total_gross_pay' => 0,
+                'total_deductions' => 0,
+                'total_net_pay' => 0,
+                'total_hours' => 0,
+                'total_staff' => 0,
             ],
         ]);
     }
+
+    // Bulk-load deductions & incentives for the month
+    $userIds = $attendance->pluck('user_id')->unique()->filter()->values();
+    $deductionsByUser = StaffDeduction::whereIn('user_id', $userIds)
+        ->where('month', $monthNum)
+        ->where('year', $yearNum)
+        ->get()
+        ->keyBy('user_id');
+
+    $incentivesByUser = StaffIncentive::whereIn('user_id', $userIds)
+        ->where('month', $monthNum)
+        ->where('year', $yearNum)
+        ->get()
+        ->keyBy('user_id');
+
+    // Group by user for payroll summary
+    $payrollByUser = [];
+    foreach ($attendance as $record) {
+        $userId = $record->user_id;
+        $assignment = $record->user->branchAssignments->first();
+        $dailyRate = $assignment ? $assignment->daily_rate : 500;
+
+        // Calculate hours worked
+        if ($record->time_in && $record->time_out) {
+            $timeIn = Carbon::parse($record->time_in);
+            $timeOut = Carbon::parse($record->time_out);
+            $hoursWorked = $timeIn->diffInHours($timeOut);
+        } else {
+            $hoursWorked = 0;
+        }
+
+        // Calculate earnings (12-hour workday)
+        if ($hoursWorked <= 12) {
+            $dailyEarnings = ($hoursWorked / 12) * $dailyRate;
+        } else {
+            $overtimeHours = $hoursWorked - 12;
+            $overtimeRate = ($dailyRate / 12) * 1.25;
+            $dailyEarnings = $dailyRate + ($overtimeHours * $overtimeRate);
+        }
+
+        // Get deductions and incentives for the month
+        $deductions = $deductionsByUser->get($userId);
+        $incentives = $incentivesByUser->get($userId);
+
+        // Initialize user payroll record if not exists
+        if (!isset($payrollByUser[$userId])) {
+            // Get monthly deductions
+            $monthlySss = $deductions ? $deductions->sss : 0;
+            $monthlyPhilhealth = $deductions ? $deductions->philhealth : 0;
+            $monthlyPagibig = $deductions ? $deductions->pagibig : 0;
+            $monthlyCashAdvance = $deductions ? $deductions->cash_advance : 0;
+            $monthlyTax = $deductions ? ($deductions->tax ?? 0) : 0;
+            
+            $payrollByUser[$userId] = [
+                'user_id' => $userId,
+                'staff_name' => $record->user->firstname . ' ' . $record->user->lastname,
+                'position' => $assignment ? $assignment->position : 'Staff',
+                'branch' => $record->branch->name ?? 'N/A',
+                'days_worked' => 0,
+                'total_hours' => 0,
+                'hourly_rate' => $dailyRate / 12,
+                'gross_pay' => 0,
+                'sss_deduction' => $monthlySss,
+                'philhealth_deduction' => $monthlyPhilhealth,
+                'pagibig_deduction' => $monthlyPagibig,
+                'cash_advance_deduction' => $monthlyCashAdvance,
+                'late_deduction' => 0,
+                'tax_deduction' => $monthlyTax,
+                'incentives' => 0,
+                'total_deductions' => 0,
+                'net_pay' => 0,
+                'late_count' => 0,
+            ];
+        }
+
+        // Accumulate daily earnings and hours
+        $payrollByUser[$userId]['days_worked']++;
+        $payrollByUser[$userId]['total_hours'] += $hoursWorked;
+        $payrollByUser[$userId]['gross_pay'] += $dailyEarnings;
+        
+        // Late deductions (these are daily)
+        if ($record->is_late) {
+            $payrollByUser[$userId]['late_deduction'] += ($record->late_minutes * 5);
+            $payrollByUser[$userId]['late_count']++;
+        }
+        
+        // Daily incentives (prorated)
+        $dailyIncentives = 0;
+        if ($incentives && $incentives->perfect_attendance && !$record->is_late) {
+            $dailyIncentives += 500 / 22;
+        }
+        $payrollByUser[$userId]['incentives'] += $dailyIncentives;
+    }
+
+    // ✅ Calculate final totals for each user with validation
+    foreach ($payrollByUser as $userId => $userPayroll) {
+        // Calculate total deductions
+        $totalDeductions = 
+            $userPayroll['sss_deduction'] + 
+            $userPayroll['philhealth_deduction'] + 
+            $userPayroll['pagibig_deduction'] + 
+            $userPayroll['cash_advance_deduction'] + 
+            $userPayroll['late_deduction'] +
+            $userPayroll['tax_deduction'];
+        
+        // ✅ CRITICAL FIX: Ensure deductions don't exceed gross pay
+        // If deductions exceed gross pay, cap them at 90% of gross pay
+        $grossPay = $userPayroll['gross_pay'];
+        $incentives = $userPayroll['incentives'];
+        
+        if ($totalDeductions > $grossPay) {
+            // Log warning for debugging
+            \Log::warning("Deductions exceeded gross pay for user {$userId}", [
+                'gross_pay' => $grossPay,
+                'deductions' => $totalDeductions,
+                'staff' => $userPayroll['staff_name']
+            ]);
+            
+            // Cap deductions at 90% of gross pay to ensure some net pay
+            $totalDeductions = $grossPay * 0.90;
+            
+            // Prorate the capped deductions across all deduction types
+            $ratio = $totalDeductions / ($userPayroll['sss_deduction'] + 
+                $userPayroll['philhealth_deduction'] + 
+                $userPayroll['pagibig_deduction'] + 
+                $userPayroll['cash_advance_deduction'] + 
+                $userPayroll['late_deduction'] +
+                $userPayroll['tax_deduction']);
+            
+            $userPayroll['sss_deduction'] *= $ratio;
+            $userPayroll['philhealth_deduction'] *= $ratio;
+            $userPayroll['pagibig_deduction'] *= $ratio;
+            $userPayroll['cash_advance_deduction'] *= $ratio;
+            $userPayroll['late_deduction'] *= $ratio;
+            $userPayroll['tax_deduction'] *= $ratio;
+        }
+        
+        // Calculate net pay
+        $netPay = $grossPay - $totalDeductions + $incentives;
+        
+        // ✅ Ensure net pay is never negative
+        if ($netPay < 0) {
+            $netPay = 0;
+        }
+        
+        // Update the payroll record
+        $payrollByUser[$userId]['total_deductions'] = $totalDeductions;
+        $payrollByUser[$userId]['net_pay'] = $netPay;
+    }
+
+    // Calculate summary
+    $totalGrossPay = array_sum(array_column($payrollByUser, 'gross_pay'));
+    $totalDeductions = array_sum(array_column($payrollByUser, 'total_deductions'));
+    $totalNetPay = array_sum(array_column($payrollByUser, 'net_pay'));
+    $totalHours = array_sum(array_column($payrollByUser, 'total_hours'));
+
+    $payrollArray = array_values($payrollByUser);
+
+    // Manual pagination
+    $offset = ($page - 1) * $perPage;
+    $paginatedData = array_slice($payrollArray, $offset, $perPage);
+    $total = count($payrollArray);
+    $lastPage = (int) ceil($total / $perPage);
+
+    return response()->json([
+        'data' => $paginatedData,
+        'pagination' => [
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+            'total' => $total,
+        ],
+        'summary' => [
+            'total_gross_pay' => $totalGrossPay,
+            'total_deductions' => $totalDeductions,
+            'total_net_pay' => $totalNetPay,
+            'total_hours' => $totalHours,
+            'total_staff' => count($payrollByUser),
+        ],
+    ]);
+}
 
     /**
      * Branch Report
@@ -573,89 +637,103 @@ class ReportController extends Controller
      * Params: start_date, end_date, branch_id (optional), status (optional)
      */
     public function pullOut(Request $request)
-    {
-        $validated = $request->validate([
-            'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date',
-            'branch_id' => 'nullable|exists:branches,id',
-            'status' => 'nullable|in:pending,approved,rejected',
-            'page' => 'nullable|integer|min:1',
-            'per_page' => 'nullable|integer|min:1|max:100',
-        ]);
+{
+    try {
+        // ✅ BASE QUERY WITH RELATIONSHIPS
+        $query = \App\Models\PullOut::with(['user', 'product', 'branch']);
 
-        $perPage = $validated['per_page'] ?? 5;
-        $page = $validated['page'] ?? 1;
-
-        $query = PullOut::with(['product', 'branch', 'user']);
-
-        if ($request->has('start_date') && $request->has('end_date')) {
-            $query->whereBetween('created_at', [$validated['start_date'], $validated['end_date']]);
+        // ✅ FILTERS
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('created_at', [
+                $request->start_date . ' 00:00:00',
+                $request->end_date . ' 23:59:59'
+            ]);
         }
 
-        if ($request->has('branch_id')) {
-            $query->where('branch_id', $validated['branch_id']);
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
         }
 
-        if ($request->has('status')) {
-            $query->where('status', $validated['status']);
+        if ($request->filled('source_branch_id') && $request->source_branch_id !== 'all') {
+            $query->where('branch_id', $request->source_branch_id);
         }
 
-        $pullOuts = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
+        // ✅ PAGINATION
+        $perPage = $request->per_page ?? 10;
+        $pullOuts = $query->latest()->paginate($perPage);
 
-        $pendingCount = $pullOuts->getCollection()->where('status', 'pending')->count();
-        $approvedCount = $pullOuts->getCollection()->where('status', 'approved')->count();
-        $rejectedCount = $pullOuts->getCollection()->where('status', 'rejected')->count();
+        // ✅ TRANSFORM DATA
+        $transformedData = collect($pullOuts->items())->map(function ($pullOut) {
+            $productPrice = optional($pullOut->product)->price ?? 0;
+            $userName = trim(
+                (optional($pullOut->user)->firstname ?? '') . ' ' .
+                (optional($pullOut->user)->lastname ?? '')
+            ) ?: 'Unknown User';
 
-        $totalItems = $pullOuts->getCollection()->sum('quantity');
+            $branchName = optional($pullOut->branch)->name ?? 'Unknown Branch';
 
-        // Transform data to include requested_by name
-        $transformedData = $pullOuts->items()->map(function ($pullOut) {
-            $productPrice = isset($pullOut->product) && $pullOut->product ? ($pullOut->product->price ?? 0) : 0;
-            $userName = isset($pullOut->user) && $pullOut->user ? ($pullOut->user->firstname . ' ' . $pullOut->user->lastname) : 'Unknown';
-            $branchName = isset($pullOut->branch) && $pullOut->branch ? $pullOut->branch->name : 'Unknown';
-            
+            // Get destination branch if it exists
+            $destinationBranch = optional($pullOut->destinationBranch)->name ?? $branchName;
+
             return [
                 'id' => $pullOut->id,
-                'user_id' => $pullOut->user_id,
-                'product_id' => $pullOut->product_id,
-                'branch_id' => $pullOut->branch_id,
-                'quantity' => $pullOut->quantity,
-                'notes' => $pullOut->notes,
-                'status' => $pullOut->status,
-                'admin_notes' => $pullOut->admin_notes,
-                'pulled_out_at' => $pullOut->pulled_out_at,
-                'approved_at' => $pullOut->approved_at,
-                'rejected_at' => $pullOut->rejected_at,
-                'approved_by' => $pullOut->approved_by,
-                'rejected_by' => $pullOut->rejected_by,
+                'reference_number' => 'PO-' . str_pad($pullOut->id, 5, '0', STR_PAD_LEFT),
                 'created_at' => $pullOut->created_at,
-                'updated_at' => $pullOut->updated_at,
                 'requested_by' => $userName,
                 'source_branch' => $branchName,
-                'destination_branch' => $branchName,
+                'destination_branch' => $destinationBranch, // Use actual destination if exists
                 'items_count' => $pullOut->quantity,
                 'total_value' => $pullOut->quantity * $productPrice,
-                'product' => $pullOut->product,
-                'branch' => $pullOut->branch,
-                'user' => $pullOut->user,
+                'status' => $pullOut->status,
+                'notes' => $pullOut->notes,
+                'items' => [
+                    [
+                        'id' => $pullOut->product_id,
+                        'item_name' => optional($pullOut->product)->name ?? 'N/A',
+                        'sku' => optional($pullOut->product)->sku ?? 'N/A',
+                        'quantity' => $pullOut->quantity,
+                        'unit_cost' => $productPrice,
+                        'total' => $pullOut->quantity * $productPrice,
+                    ]
+                ]
             ];
         });
 
+        // ✅ SUMMARY - FIXED to use the original query with proper counting
+        $summary = [
+            'total_transfers' => $pullOuts->total(),
+            'completed' => \App\Models\PullOut::where('status', 'approved')->count(),
+            'pending' => \App\Models\PullOut::where('status', 'pending')->count(),
+            'total_value' => $pullOuts->getCollection()->sum(function ($item) {
+                return ($item->quantity ?? 0) * (optional($item->product)->price ?? 0);
+            }),
+        ];
+
+        // ✅ FINAL RESPONSE
         return response()->json([
+            'success' => true,
             'data' => $transformedData,
+            'summary' => $summary,
             'pagination' => [
                 'current_page' => $pullOuts->currentPage(),
-                'last_page' => $pullOuts->lastPage(),
                 'per_page' => $pullOuts->perPage(),
                 'total' => $pullOuts->total(),
-            ],
-            'summary' => [
-                'total_requests' => $pullOuts->total(),
-                'pending_count' => $pendingCount,
-                'approved_count' => $approvedCount,
-                'rejected_count' => $rejectedCount,
-                'total_items' => $totalItems,
-            ],
+                'last_page' => $pullOuts->lastPage(),
+            ]
         ]);
+
+    } catch (\Exception $e) {
+        \Log::error('PullOut error: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+            'line' => $e->getLine(),
+            'file' => $e->getFile()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to fetch pull-out records',
+            'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+        ], 500);
     }
+}   
 }
