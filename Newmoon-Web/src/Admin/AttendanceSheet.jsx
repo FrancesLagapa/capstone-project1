@@ -1,14 +1,12 @@
-// AttendanceView.js
 import React, { useEffect, useState } from "react";
+import { Card, Table, Tag, Button, Space, DatePicker, Input, message } from "antd";
 import {
   SearchOutlined,
-  PrinterOutlined,
-  EditOutlined,
-  UserOutlined,
   ReloadOutlined,
   ClockCircleOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "../config/api";
@@ -18,35 +16,18 @@ function AttendanceView() {
   const [selectedDate, setSelectedDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Update current time
-  useEffect(() => {
-    const updatePHTime = () => {
-      const now = new Date();
-      const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-      const phTime = new Date(utc + 8 * 60 * 60 * 1000);
-      setCurrentTime(phTime);
-    };
-
-    updatePHTime();
-    const timer = setInterval(updatePHTime, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Load attendance data
   const loadAttendanceData = async () => {
     setIsLoading(true);
     try {
       const response = await api.get("/attendance", {
         params: { date: selectedDate },
       });
-      // ✅ Extract the actual records from the paginated response
       const records = response.data?.data ?? [];
       setAttendanceData(records);
     } catch (error) {
       console.error("Error loading attendance:", error);
-      alert("Failed to load attendance data. Please try again.");
+      message.error("Failed to load attendance data. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +37,6 @@ function AttendanceView() {
     loadAttendanceData();
   }, [selectedDate]);
 
-  // Safety check: ensure attendanceData is an array before filtering
   const filteredData = Array.isArray(attendanceData)
     ? attendanceData.filter((item) => {
         const firstName = item.user?.firstname || "";
@@ -69,7 +49,6 @@ function AttendanceView() {
   const formatTime = (time) => {
     if (!time) return "-";
     try {
-      // Check if time is in HH:MM:SS format
       if (/^\d{2}:\d{2}:\d{2}$/.test(time)) {
         const [hours, minutes] = time.split(':');
         const hour = parseInt(hours, 10);
@@ -77,11 +56,8 @@ function AttendanceView() {
         const hour12 = hour % 12 || 12;
         return `${hour12}:${minutes} ${ampm}`;
       }
-      // Try parsing as a full date
       const date = new Date(time);
-      if (isNaN(date.getTime())) {
-        return time;
-      }
+      if (isNaN(date.getTime())) return time;
       return date.toLocaleTimeString("en-PH", {
         hour: "2-digit",
         minute: "2-digit",
@@ -92,229 +68,193 @@ function AttendanceView() {
     }
   };
 
-  const getStatusBadge = (status) => {
-    const normalizedStatus = String(status).toLowerCase().trim();
-    
-    if (normalizedStatus === "present" || 
-        normalizedStatus === "completed" || 
-        normalizedStatus === "completed_late") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-          <CheckCircleOutlined className="text-xs" /> 
-          {normalizedStatus === "completed_late" ? "Completed (Late)" : "Present"}
-        </span>
-      );
-    } else if (normalizedStatus === "late") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-          <ClockCircleOutlined className="text-xs" /> Late
-        </span>
-      );
-    } else if (normalizedStatus === "absent") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-600">
-          <CloseCircleOutlined className="text-xs" /> Absent
-        </span>
-      );
-    } else {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-          <CloseCircleOutlined className="text-xs" /> 
-          {status || "Unknown"}
-        </span>
-      );
+  const statusTag = (status) => {
+    const normalized = String(status).toLowerCase().trim();
+    if (normalized === "present" || normalized === "completed") {
+      return <Tag color="green" icon={<CheckCircleOutlined />}>Present</Tag>;
     }
+    if (normalized === "completed_late") {
+      return <Tag color="green" icon={<CheckCircleOutlined />}>Completed (Late)</Tag>;
+    }
+    if (normalized === "late") {
+      return <Tag color="orange" icon={<ClockCircleOutlined />}>Late</Tag>;
+    }
+    if (normalized === "absent") {
+      return <Tag color="red" icon={<CloseCircleOutlined />}>Absent</Tag>;
+    }
+    return <Tag color="default">{status || "Unknown"}</Tag>;
   };
 
   const getStatusStats = (data) => {
-    let present = 0;
-    let late = 0;
-    let absent = 0;
-
+    let present = 0, late = 0, absent = 0;
     data.forEach(item => {
       const status = String(item.status).toLowerCase().trim();
-      if (status === "present" || status === "completed" || status === "completed_late") {
-        present++;
-      } else if (status === "late") {
-        late++;
-      } else if (status === "absent") {
-        absent++;
-      }
+      if (status === "present" || status === "completed" || status === "completed_late") present++;
+      else if (status === "late") late++;
+      else if (status === "absent") absent++;
     });
-
     return { present, late, absent };
   };
 
   const totalStaff = filteredData.length;
   const stats = getStatusStats(filteredData);
-  const presentStaff = stats.present;
-  const lateStaff = stats.late;
-  const absentStaff = stats.absent;
+
+  const columns = [
+    {
+      title: "Staff Name",
+      key: "name",
+      render: (_, r) => (
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-semibold">
+            {r.user?.firstname?.charAt(0) || "?"}
+          </div>
+          <span className="font-medium">
+            {r.user?.firstname && r.user?.lastname
+              ? `${r.user.firstname} ${r.user.lastname}`
+              : r.user?.firstname || r.user?.lastname || "Unknown Staff"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: "Branch",
+      key: "branch",
+      render: (_, r) => r.branch?.name || <span className="text-gray-400">N/A</span>,
+    },
+    {
+      title: "Time In",
+      key: "time_in",
+      align: "center",
+      render: (_, r) => <span className="font-mono">{formatTime(r.time_in)}</span>,
+    },
+    {
+      title: "Time Out",
+      key: "time_out",
+      align: "center",
+      render: (_, r) => <span className="font-mono">{formatTime(r.time_out)}</span>,
+    },
+    {
+      title: "Status",
+      key: "status",
+      align: "center",
+      render: (_, r) => statusTag(r.status),
+    },
+    {
+      title: "Hours Worked",
+      key: "hours_worked",
+      align: "center",
+      render: (_, r) => (r.hours_worked ? `${r.hours_worked}h` : "-"),
+    },
+    {
+      title: "Daily Rate",
+      key: "daily_rate",
+      align: "right",
+      render: (_, r) => <span className="text-green-600 font-medium">₱{r.daily_rate?.toFixed(2) || "0.00"}</span>,
+    },
+  ];
 
   return (
-    <div className="bg-gray-50" style={{ minHeight: "100vh" }}>
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Attendance</h1>
-            <p className="text-gray-500 mt-1">Daily staff attendance tracking</p>
+    <div className="p-6 bg-gradient-to-br from-[#E3F2FD]/30 via-white to-[#FFEBEE]/30 min-h-screen">
+      {/* Header - FoodMeal Style */}
+      <div className="mb-6 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(229,57,53,0.2)] bg-gradient-to-br from-[#E53935] to-[#1A237E]">
+        <div className="px-8 py-6 relative">
+          {/* Decorative circles */}
+          <div className="absolute right-0 top-0 opacity-10">
+            <div className="w-64 h-64 rounded-full bg-white -mr-32 -mt-32"></div>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-500">Current Time</p>
-            <p className="text-lg font-semibold">
-              {currentTime.toLocaleTimeString("en-PH", {
-                hour12: true,
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </p>
+          <div className="absolute bottom-0 left-1/3 opacity-5">
+            <div className="w-48 h-48 rounded-full bg-white"></div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Total Staff</p>
-            <p className="text-2xl font-bold text-gray-800">{totalStaff}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Present</p>
-            <p className="text-2xl font-bold text-green-600">{presentStaff}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Late</p>
-            <p className="text-2xl font-bold text-yellow-600">{lateStaff}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Absent</p>
-            <p className="text-2xl font-bold text-red-600">{absentStaff}</p>
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-          <div className="flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Select Date</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">Search Staff</label>
-                <div className="flex items-center border border-gray-300 rounded-md px-3 py-2">
-                  <SearchOutlined className="text-gray-400 text-sm mr-2" />
-                  <input
-                    type="text"
-                    placeholder="Enter name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="text-sm outline-none w-48"
-                  />
-                </div>
-              </div>
+          <div className="flex items-center justify-between relative z-10">
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                <UserOutlined className="mr-2" />
+                Attendance Sheet
+              </h1>
+              <p className="text-white/80 text-sm">Daily staff attendance tracking</p>
             </div>
-            <button
-              onClick={loadAttendanceData}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-            >
-              <ReloadOutlined />
-              Refresh
-            </button>
           </div>
-        </div>
 
-        {/* Attendance Table */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Staff Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Branch
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Time In
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Time Out
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Hours Worked
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Daily Rate
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-12">
-                      <div className="flex justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                      </div>
-                      <p className="text-gray-500 mt-2 text-sm">Loading attendance...</p>
-                    </td>
-                  </tr>
-                ) : filteredData.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-12 text-gray-500">
-                      No attendance records found for this date.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredData.map((record, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-semibold">
-                            {record.user?.firstname?.charAt(0) || "?"}
-                          </div>
-                          <span className="font-medium text-gray-800">
-                            {record.user?.firstname && record.user?.lastname
-                              ? `${record.user.firstname} ${record.user.lastname}`
-                              : record.user?.firstname || record.user?.lastname || "Unknown Staff"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{record.branch?.name || "N/A"}</td>
-                      <td className="px-4 py-3 text-center font-mono">{formatTime(record.time_in)}</td>
-                      <td className="px-4 py-3 text-center font-mono">{formatTime(record.time_out)}</td>
-                      <td className="px-4 py-3 text-center">{getStatusBadge(record.status)}</td>
-                      <td className="px-4 py-3 text-center">
-                        {record.hours_worked ? `${record.hours_worked}h` : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-green-600">
-                        ₱{record.daily_rate?.toFixed(2) || "0.00"}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          {/* Quick Stats in Header */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 relative z-10">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Staff</p>
+              <p className="text-white font-bold text-xl">{totalStaff}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Present</p>
+              <p className="text-white font-bold text-xl">{stats.present}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Late</p>
+              <p className="text-white font-bold text-xl">{stats.late}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Absent</p>
+              <p className="text-white font-bold text-xl">{stats.absent}</p>
+            </div>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-6 text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
-          <p>Generated on {currentTime.toLocaleString()} | New Moon Lechon Manok and Liempo</p>
         </div>
       </div>
+
+      {/* Action Buttons - FoodMeal Style */}
+      <Card className="mb-6 rounded-xl border border-[#E3F2FD] shadow-sm">
+        <Space wrap>
+          <DatePicker
+            value={dayjs(selectedDate)}
+            onChange={(date) => {
+              if (date) setSelectedDate(date.format("YYYY-MM-DD"));
+            }}
+            allowClear={false}
+            className="rounded-xl"
+          />
+          <Input
+            placeholder="Search staff..."
+            prefix={<SearchOutlined />}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+            className="rounded-xl"
+          />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={loadAttendanceData}
+            loading={isLoading}
+            className="rounded-xl border-[#1A237E] text-[#1A237E] hover:bg-[#E3F2FD]"
+          >
+            Refresh
+          </Button>
+        </Space>
+      </Card>
+
+      {/* Records Section - FoodMeal Style */}
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-[#1A237E]">
+              <UserOutlined className="mr-2 text-[#E53935]" />
+              Attendance Records
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">Staff attendance for {dayjs(selectedDate).format("MMMM D, YYYY")}</p>
+          </div>
+          <Tag className="text-sm px-3 py-1 rounded-full bg-gradient-to-br from-[#E53935] to-[#1A237E] text-white border-none">
+            {filteredData.length} record{filteredData.length !== 1 ? 's' : ''}
+          </Tag>
+        </div>
+      </div>
+
+      <Card className="rounded-xl border border-[#E3F2FD] shadow-sm">
+        <Table
+          columns={columns}
+          dataSource={filteredData}
+          rowKey={(record) => record.id ?? `${record.user_id}-${selectedDate}`}
+          loading={isLoading}
+          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `Total ${t} records` }}
+          locale={{ emptyText: <div className="py-8 text-center"><UserOutlined className="text-4xl text-gray-300 mb-2" /><p className="text-gray-500">No attendance records found for this date</p><p className="text-gray-400 text-sm">Try selecting a different date</p></div> }}
+        />
+      </Card>
     </div>
   );
 }

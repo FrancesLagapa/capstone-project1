@@ -26,12 +26,32 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "../config/api";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as ReTooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 // ✅ Replace this with your actual auth hook / context
 import { useAuth } from "../hooks/useAuth"; // e.g., returns { user, isAdmin }
 
 const { Text, Title } = Typography;
 const { RangePicker } = DatePicker;
+
+const trendShapes = ["circle", "star", "diamond", "triangle", "cross", "wye"];
+const trendShapeMap = {
+  circle: "circle",
+  star: "star",
+  diamond: "diamond",
+  triangle: "triangle",
+  cross: "cross",
+  wye: "wye",
+};
 
 const SalesReport = () => {
   // ---------- Authentication ----------
@@ -54,6 +74,9 @@ const SalesReport = () => {
     pageSize: 15,
     total: 0,
   });
+  const [trendData, setTrendData] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendShape, setTrendShape] = useState("circle");
 
   // ---------- Fetch report ----------
   const fetchSalesReport = async (page = 1) => {
@@ -94,7 +117,14 @@ const SalesReport = () => {
 
       // Build summary
       let summaryData = data.summary || {};
-      if (groupBy !== "detail" && summaryData.total_sales !== undefined) {
+      if (groupBy === "branch") {
+        summaryData = {
+          total_revenue: summaryData.total_revenue || 0,
+          total_transactions: summaryData.total_transactions || 0,
+          avg_transaction: summaryData.avg_branch_revenue || 0,
+          growth: null,
+        };
+      } else if (groupBy !== "detail" && summaryData.total_sales !== undefined) {
         const totalTransactions = summaryData.total_transactions || 0;
         const totalSales = summaryData.total_sales || 0;
         summaryData = {
@@ -151,6 +181,42 @@ const SalesReport = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, groupBy, selectedBranch, userBranchId, isAdmin]);
 
+  // ---------- Fetch 6-month trend ----------
+  useEffect(() => {
+    const fetchTrend = async () => {
+      setTrendLoading(true);
+      try {
+        const end = dayjs().endOf("month");
+        const start = dayjs().subtract(5, "month").startOf("month");
+        const params = {
+          start_date: start.format("YYYY-MM-DD"),
+          end_date: end.format("YYYY-MM-DD"),
+          group_by: "monthly",
+        };
+        if (!isAdmin) params.branch_id = userBranchId;
+        else if (selectedBranch) params.branch_id = selectedBranch;
+
+        const res = await api.get("/reports/sales", { params });
+        const raw = res.data?.data || [];
+
+        const formatted = raw.map((row) => ({
+          month: dayjs(row.period + "-01").isValid()
+            ? dayjs(row.period + "-01").format("MMM YYYY")
+            : row.period,
+          sales: Number(row.total_sales) || 0,
+          transactions: Number(row.transaction_count) || 0,
+          items: Number(row.total_items) || 0,
+        }));
+        setTrendData(formatted);
+      } catch (err) {
+        console.error("[SalesReport] Trend fetch error:", err);
+      } finally {
+        setTrendLoading(false);
+      }
+    };
+    fetchTrend();
+  }, [selectedBranch, userBranchId, isAdmin]);
+
   // ---------- Table pagination handler ----------
   const handleTableChange = (pagination) => {
     fetchSalesReport(pagination.current);
@@ -158,8 +224,9 @@ const SalesReport = () => {
 
   // ---------- Export CSV ----------
   const handleExport = () => {
+    let csvContent = "";
     if (groupBy === "detail") {
-      const csvContent = [
+      csvContent = [
         ["Date", "Invoice", "Customer", "Items", "Total", "Payment Method", "Branch"],
         ...salesData.map((row) => [
           dayjs(row.created_at).format("YYYY-MM-DD HH:mm"),
@@ -173,15 +240,21 @@ const SalesReport = () => {
       ]
         .map((e) => e.join(","))
         .join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `sales_report_${dayjs().format("YYYY-MM-DD")}.csv`;
-      a.click();
+    } else if (groupBy === "branch") {
+      csvContent = [
+        ["Branch", "Transactions", "Items Sold", "Total Sales", "Avg/Transaction"],
+        ...salesData.map((row) => [
+          row.branch_name,
+          row.transaction_count,
+          row.total_items,
+          row.total_sales,
+          row.avg_transaction,
+        ]),
+      ]
+        .map((e) => e.join(","))
+        .join("\n");
     } else {
-      const csvContent = [
+      csvContent = [
         ["Period", "Transactions", "Total Sales", "Items Sold"],
         ...salesData.map((row) => [
           row.period,
@@ -192,14 +265,14 @@ const SalesReport = () => {
       ]
         .map((e) => e.join(","))
         .join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `sales_report_${dayjs().format("YYYY-MM-DD")}.csv`;
-      a.click();
     }
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sales_report_${groupBy}_${dayjs().format("YYYY-MM-DD")}.csv`;
+    a.click();
   };
 
   // ---------- Table columns ----------
@@ -268,9 +341,22 @@ const SalesReport = () => {
     },
     {
       title: "Items",
-      dataIndex: "items_count",
-      key: "items_count",
-      align: "center",
+      dataIndex: "items",
+      key: "items",
+      render: (items) => {
+        if (!items || items.length === 0) return "-";
+        return (
+          <Tooltip
+            title={items.map((i) => `${i.product?.name || "N/A"} x${i.quantity}`).join("\n")}
+          >
+            <Tag>
+              {items.length === 1
+                ? items[0].product?.name || "N/A"
+                : `${items[0].product?.name || "N/A"} +${items.length - 1}`}
+            </Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "Total",
@@ -293,8 +379,48 @@ const SalesReport = () => {
     },
     {
       title: "Branch",
+      dataIndex: ["branch", "name"],
+      key: "branch_name",
+      render: (name) => name || "-",
+    },
+  ];
+
+  const branchColumns = [
+    {
+      title: "Branch",
       dataIndex: "branch_name",
       key: "branch_name",
+      render: (name) => <Text strong>{name}</Text>,
+    },
+    {
+      title: "Transactions",
+      dataIndex: "transaction_count",
+      key: "transaction_count",
+      align: "center",
+      sorter: (a, b) => a.transaction_count - b.transaction_count,
+    },
+    {
+      title: "Items Sold",
+      dataIndex: "total_items",
+      key: "total_items",
+      align: "center",
+    },
+    {
+      title: "Total Sales",
+      dataIndex: "total_sales",
+      key: "total_sales",
+      sorter: (a, b) => a.total_sales - b.total_sales,
+      render: (val) => (
+        <Text strong style={{ color: "#52c41a" }}>
+          ₱{Number(val).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        </Text>
+      ),
+    },
+    {
+      title: "Avg / Transaction",
+      dataIndex: "avg_transaction",
+      key: "avg_transaction",
+      render: (val) => `₱${Number(val).toFixed(2)}`,
     },
   ];
 
@@ -402,7 +528,7 @@ const SalesReport = () => {
             <Col xs={24} sm={12} md={6}>
               <Card variant="borderless">
                 <Statistic
-                  title="Total Transactions"
+                  title={groupBy === "branch" ? "Total Transactions" : "Total Transactions"}
                   value={summary.total_transactions || 0}
                   prefix={<ShoppingOutlined />}
                   styles={{ content: { color: "#1890ff" } }}
@@ -412,7 +538,7 @@ const SalesReport = () => {
             <Col xs={24} sm={12} md={6}>
               <Card variant="borderless">
                 <Statistic
-                  title="Avg Transaction"
+                  title={groupBy === "branch" ? "Avg Branch Revenue" : "Avg Transaction"}
                   value={summary.avg_transaction || 0}
                   prefix={<DollarOutlined />}
                   styles={{ content: { color: "#722ed1" } }}
@@ -423,10 +549,18 @@ const SalesReport = () => {
             <Col xs={24} sm={12} md={6}>
               <Card variant="borderless">
                 <Statistic
-                  title="Growth (vs previous)"
-                  value={summary.growth !== null ? summary.growth : "N/A"}
+                  title={groupBy === "branch" ? "Active Branches" : "Growth (vs previous)"}
+                  value={
+                    groupBy === "branch"
+                      ? summary.total_branches || 0
+                      : summary.growth !== null
+                      ? summary.growth
+                      : "N/A"
+                  }
                   prefix={
-                    summary.growth !== null && summary.growth >= 0 ? (
+                    groupBy === "branch" ? (
+                      <BarChartOutlined />
+                    ) : summary.growth !== null && summary.growth >= 0 ? (
                       <RiseOutlined />
                     ) : (
                       <FallOutlined />
@@ -435,17 +569,110 @@ const SalesReport = () => {
                   styles={{
                     content: {
                       color:
-                        summary.growth !== null && summary.growth >= 0
+                        groupBy === "branch"
+                          ? "#1890ff"
+                          : summary.growth !== null && summary.growth >= 0
                           ? "#52c41a"
                           : "#ff4d4f",
                     },
                   }}
-                  suffix={summary.growth !== null ? "%" : ""}
+                  suffix={
+                    groupBy === "branch" ? "" : summary.growth !== null ? "%" : ""
+                  }
                 />
               </Card>
             </Col>
           </>
         )}
+
+        {/* 6-Month Trend Chart */}
+        <Col span={24}>
+          <Card
+            variant="borderless"
+            title="6-Month Sales Trend"
+            extra={
+              <Select
+                value={trendShape}
+                onChange={setTrendShape}
+                style={{ width: 120 }}
+                size="small"
+              >
+                {trendShapes.map((s) => (
+                  <Select.Option key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </Select.Option>
+                ))}
+              </Select>
+            }
+          >
+            {trendLoading ? (
+              <div style={{ textAlign: "center", padding: 40 }}>Loading...</div>
+            ) : trendData.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#999" }}>
+                No trend data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={trendData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(v) =>
+                      v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v
+                    }
+                  />
+                  <ReTooltip
+                    formatter={(value, name) => {
+                      if (name === "Sales")
+                        return [
+                          `₱${Number(value).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                          })}`,
+                          name,
+                        ];
+                      return [value, name];
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="sales"
+                    name="Sales"
+                    stroke="#52c41a"
+                    strokeWidth={2}
+                    dot={{
+                      r: 5,
+                      fill: "#52c41a",
+                      stroke: "#fff",
+                      strokeWidth: 2,
+                      symbol: trendShapeMap[trendShape],
+                    }}
+                    activeDot={{ r: 7 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="transactions"
+                    name="Transactions"
+                    stroke="#1890ff"
+                    strokeWidth={2}
+                    dot={{
+                      r: 5,
+                      fill: "#1890ff",
+                      stroke: "#fff",
+                      strokeWidth: 2,
+                      symbol: trendShapeMap[trendShape],
+                    }}
+                    activeDot={{ r: 7 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
 
         {/* Data Table */}
         <Col span={24}>
@@ -454,6 +681,8 @@ const SalesReport = () => {
             title={
               groupBy === "detail"
                 ? "Transaction Details"
+                : groupBy === "branch"
+                ? "Sales by Branch"
                 : `Sales by ${groupBy}`
             }
           >
@@ -465,6 +694,15 @@ const SalesReport = () => {
                 loading={loading}
                 pagination={pagination}
                 onChange={handleTableChange}
+                scroll={{ x: true }}
+              />
+            ) : groupBy === "branch" ? (
+              <Table
+                columns={branchColumns}
+                dataSource={salesData}
+                rowKey="branch_id"
+                loading={loading}
+                pagination={false}
                 scroll={{ x: true }}
               />
             ) : (

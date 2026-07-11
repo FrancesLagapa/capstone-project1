@@ -65,12 +65,12 @@ class PayrollController extends Controller
                 $hoursWorked = 0;
             }
 
-            // Calculate earnings (8-hour workday)
-            if ($hoursWorked <= 8) {
-                $dailyEarnings = ($hoursWorked / 8) * $dailyRate;
+            // Calculate earnings (12-hour workday: 9am-9pm)
+            if ($hoursWorked <= 12) {
+                $dailyEarnings = ($hoursWorked / 12) * $dailyRate;
             } else {
-                $overtimeHours = $hoursWorked - 8;
-                $overtimeRate = ($dailyRate / 8) * 1.25;
+                $overtimeHours = $hoursWorked - 12;
+                $overtimeRate = ($dailyRate / 12) * 1.25;
                 $dailyEarnings = $dailyRate + ($overtimeHours * $overtimeRate);
             }
 
@@ -173,7 +173,7 @@ class PayrollController extends Controller
             $assignment = $record->user->branchAssignments->first();
             $dailyRate = $assignment ? $assignment->daily_rate : 500;
 
-            // Calculate hours worked (keep same logic as daily endpoint to avoid behavior changes)
+            // Calculate hours worked
             if ($record->time_in && $record->time_out) {
                 $timeIn = Carbon::parse($record->time_in);
                 $timeOut = Carbon::parse($record->time_out);
@@ -182,12 +182,12 @@ class PayrollController extends Controller
                 $hoursWorked = 0;
             }
 
-            // Calculate earnings (8-hour workday)
-            if ($hoursWorked <= 8) {
-                $dailyEarnings = ($hoursWorked / 8) * $dailyRate;
+            // Calculate earnings (12-hour workday: 9am-9pm)
+            if ($hoursWorked <= 12) {
+                $dailyEarnings = ($hoursWorked / 12) * $dailyRate;
             } else {
-                $overtimeHours = $hoursWorked - 8;
-                $overtimeRate = ($dailyRate / 8) * 1.25;
+                $overtimeHours = $hoursWorked - 12;
+                $overtimeRate = ($dailyRate / 12) * 1.25;
                 $dailyEarnings = $dailyRate + ($overtimeHours * $overtimeRate);
             }
 

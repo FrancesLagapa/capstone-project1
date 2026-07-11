@@ -13,6 +13,7 @@ class Product extends Model
         'name',
         'price',
         'description',
+        'image',
         'sku',
         'category',
         'is_active',
@@ -37,5 +38,10 @@ class Product extends Model
     public function saleItems()
     {
         return $this->hasMany(SaleItem::class);
+    }
+
+    public function stockBatches()
+    {
+        return $this->hasMany(StockBatch::class);
     }
 }

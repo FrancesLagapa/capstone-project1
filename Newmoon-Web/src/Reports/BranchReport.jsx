@@ -88,7 +88,7 @@ const BranchReport = () => {
 
   const handleExport = () => {
     const csvContent = [
-      ["Branch", "Location", "Total Sales", "Transactions", "Avg Transaction", "Staff Count", "Growth %"],
+      ["Branch", "Location", "Total Sales", "Transactions", "Avg Transaction", "Staff Count", "Sales/Staff", "Growth %"],
       ...branchData.map(row => [
         row.name,
         row.location,
@@ -96,6 +96,7 @@ const BranchReport = () => {
         row.transaction_count,
         row.avg_transaction,
         row.staff_count,
+        row.sales_per_staff,
         row.growth,
       ]),
     ].map(e => e.join(",")).join("\n");
@@ -176,22 +177,6 @@ const BranchReport = () => {
         return (
           <Tag color={isPositive ? "green" : "red"} icon={isPositive ? <RiseOutlined /> : <FallOutlined />}>
             {isPositive ? "+" : ""}{growth.toFixed(1)}%
-          </Tag>
-        );
-      },
-    },
-    {
-      title: "Rank",
-      key: "rank",
-      render: (_, __, index) => {
-        const rank = index + 1;
-        const colors = ["#ffd700", "#c0c0c0", "#cd7f32"];
-        return (
-          <Tag
-            color={rank <= 3 ? colors[rank - 1] : "default"}
-            icon={rank <= 3 ? <TrophyOutlined /> : null}
-          >
-            #{rank}
           </Tag>
         );
       },

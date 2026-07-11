@@ -17,6 +17,14 @@ use App\Http\Controllers\Api\SupplyRequestController;
 use App\Http\Controllers\Api\PullOutController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RegisterController;
+use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\ReservationController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\StaffPerformanceController;
+use App\Http\Controllers\Api\BackToSaleController;
+use App\Http\Controllers\Api\AddressController;
+use App\Http\Controllers\Api\SalesTargetController;
 
 // PUBLIC ROUTES
 Route::post('/login', [AuthController::class, 'login']);
@@ -45,8 +53,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('products', ProductController::class);
     Route::post('/products/{id}/restock', [ProductController::class, 'restock']);
     Route::post('/products/{id}/toggle-received', [ProductController::class, 'toggleReceived']);
+    Route::get('/stock-batches', [ProductController::class, 'stockBatches']);
     
-    // Staff
+    // Staff (must come before apiResource to avoid {staff} catching "orders")
+    Route::get('/staff/orders', [OrderController::class, 'staffIndex']);
+    Route::post('/staff/orders/{id}/status', [OrderController::class, 'staffUpdateStatus']);
     Route::apiResource('staff', StaffController::class);
     
     // Staff Assignments - Add these routes
@@ -92,6 +103,14 @@ Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'get
     Route::get('/pull-outs/{id}', [PullOutController::class, 'show']);
     Route::post('/pull-outs/{id}/approve', [PullOutController::class, 'approve']);
     Route::post('/pull-outs/{id}/reject', [PullOutController::class, 'reject']);
+
+    // Back-to-Sales
+    Route::get('/back-to-sales', [BackToSaleController::class, 'index']);
+    Route::get('/back-to-sales/all', [BackToSaleController::class, 'all']);
+    Route::post('/back-to-sales', [BackToSaleController::class, 'store']);
+    Route::get('/back-to-sales/{id}', [BackToSaleController::class, 'show']);
+    Route::post('/back-to-sales/{id}/approve', [BackToSaleController::class, 'approve']);
+    Route::post('/back-to-sales/{id}/reject', [BackToSaleController::class, 'reject']);
     
     // Face enrollment (attendance)
     Route::get('/face/status', [FaceEnrollmentController::class, 'status']);
@@ -109,11 +128,49 @@ Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'get
     Route::get('/payroll/daily', [PayrollController::class, 'getPayroll']);
     
     // Sales - Custom routes MUST come before apiResource
-    Route::get('/sales/tracker', [SaleController::class, 'tracker']);
     Route::get('/sales/product-incentives', [SaleController::class, 'getProductIncentives']);
     Route::get('/sales/product-incentives/daily', [SaleController::class, 'getDailyProductIncentives']);
     Route::get('/sales/summary/overview', [SaleController::class, 'getSalesSummary']);
     Route::apiResource('sales', SaleController::class);
+
+    // Customer Reservations
+    Route::get('/customer/reservations', [ReservationController::class, 'index']);
+    Route::post('/customer/reservations', [ReservationController::class, 'store']);
+    Route::get('/customer/reservations/{id}', [ReservationController::class, 'show']);
+    Route::post('/customer/reservations/{id}/cancel', [ReservationController::class, 'cancel']);
+
+    // Admin Reservations
+    Route::get('/admin/reservations', [ReservationController::class, 'adminIndex']);
+    Route::get('/admin/reservations/{id}', [ReservationController::class, 'adminShow']);
+    Route::post('/admin/reservations/{id}/confirm', [ReservationController::class, 'confirm']);
+    Route::post('/admin/reservations/{id}/mark-ready', [ReservationController::class, 'markReady']);
+    Route::post('/admin/reservations/{id}/mark-picked-up', [ReservationController::class, 'markPickedUp']);
+    Route::post('/admin/reservations/{id}/cancel', [ReservationController::class, 'adminCancel']);
+
+    // Customer Orders
+    Route::get('/customer/orders', [OrderController::class, 'index']);
+    Route::post('/customer/orders', [OrderController::class, 'store']);
+    Route::get('/customer/orders/{id}', [OrderController::class, 'show']);
+    Route::post('/customer/orders/{id}/cancel', [OrderController::class, 'cancel']);
+    Route::get('/customer/orders/{id}/track', [OrderController::class, 'trackRider']);
+    Route::get('/customer/order-statuses', [OrderController::class, 'statuses']);
+
+    // Rider Orders
+    Route::get('/rider/orders', [OrderController::class, 'riderIndex']);
+    Route::post('/rider/orders/{id}/status', [OrderController::class, 'riderUpdateStatus']);
+
+    // Rider Tracking
+    Route::post('/rider/orders/{id}/location', [OrderController::class, 'updateLocation']);
+    Route::post('/rider/orders/{id}/assign', [OrderController::class, 'assignRider']);
+
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+
+    // Mark product as not received
+    Route::post('/products/{id}/mark-not-received', [ProductController::class, 'markNotReceived']);
 
     // Reports
     Route::get('/reports/sales', [ReportController::class, 'sales']);
@@ -122,4 +179,28 @@ Route::get('/staff/{userId}/assignment', [StaffAssignmentController::class, 'get
     Route::get('/reports/payroll', [ReportController::class, 'payroll']);
     Route::get('/reports/branches', [ReportController::class, 'branches']);
     Route::get('/reports/pull-out', [ReportController::class, 'pullOut']);
+    Route::get('/reports/deliveries', [ReportController::class, 'deliveries']);
+
+    // Customers
+    Route::get('/customers', [CustomerController::class, 'index']);
+    Route::get('/customers/{id}', [CustomerController::class, 'show']);
+    Route::post('/customers/{id}/toggle-active', [CustomerController::class, 'toggleActive']);
+
+    // Staff Performance
+    Route::get('/staff-performance', [StaffPerformanceController::class, 'index']);
+
+    // Sales Targets
+    Route::get('/sales-targets', [SalesTargetController::class, 'index']);
+    Route::post('/sales-targets', [SalesTargetController::class, 'store']);
+    Route::post('/sales-targets/bulk', [SalesTargetController::class, 'bulkStore']);
+    Route::put('/sales-targets/{id}', [SalesTargetController::class, 'update']);
+    Route::delete('/sales-targets/{id}', [SalesTargetController::class, 'destroy']);
+
+    // Addresses
+    Route::get('/addresses', [AddressController::class, 'index']);
+    Route::post('/addresses', [AddressController::class, 'store']);
+    Route::get('/addresses/{address}', [AddressController::class, 'show']);
+    Route::put('/addresses/{address}', [AddressController::class, 'update']);
+    Route::delete('/addresses/{address}', [AddressController::class, 'destroy']);
+    Route::post('/addresses/{address}/default', [AddressController::class, 'setDefault']);
 });

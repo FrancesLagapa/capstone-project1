@@ -29,7 +29,7 @@ class ReportController extends Controller
         $validated = $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date',
-            'group_by' => 'required|in:daily,weekly,monthly,detail',
+            'group_by' => 'required|in:daily,weekly,monthly,detail,items,branch',
             'branch_id' => 'nullable|exists:branches,id',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:1|max:100',
@@ -63,6 +63,103 @@ class ReportController extends Controller
                     'total_items_sold' => $sales->getCollection()->sum(function ($sale) {
                         return $sale->items->sum('quantity');
                     }),
+                ],
+            ]);
+        }
+
+        // ---------- Items breakdown ----------
+        if ($groupBy === 'items') {
+            $itemQuery = DB::table('sale_items')
+                ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+                ->join('products', 'sale_items.product_id', '=', 'products.id')
+                ->select(
+                    'products.id as product_id',
+                    'products.name as product_name',
+                    DB::raw('SUM(sale_items.quantity) as total_qty'),
+                    DB::raw('SUM(sale_items.subtotal) as total_revenue'),
+                    DB::raw('ROUND(AVG(sale_items.price), 2) as avg_price'),
+                    DB::raw('COUNT(DISTINCT sales.id) as transaction_count')
+                )
+                ->whereBetween('sales.sale_date', [$validated['start_date'], $validated['end_date']])
+                ->when($request->has('branch_id'), fn ($q) => $q->where('sales.branch_id', $validated['branch_id']))
+                ->groupBy('products.id', 'products.name')
+                ->orderByDesc('total_revenue');
+
+            $perPageItems = $validated['per_page'] ?? 15;
+            $pageItems = $validated['page'] ?? 1;
+            $totalItems = $itemQuery->count();
+            $items = $itemQuery->offset(($pageItems - 1) * $perPageItems)->limit($perPageItems)->get();
+
+            $totalRevenue = $items->sum('total_revenue');
+            $totalQty = $items->sum('total_qty');
+            $lastPageItems = (int) ceil($totalItems / $perPageItems);
+
+            return response()->json([
+                'data' => $items,
+                'pagination' => [
+                    'current_page' => $pageItems,
+                    'last_page' => $lastPageItems,
+                    'per_page' => $perPageItems,
+                    'total' => $totalItems,
+                ],
+                'summary' => [
+                    'total_revenue' => (float) $items->sum('total_revenue'),
+                    'total_qty_sold' => (int) $items->sum('total_qty'),
+                    'total_products' => $totalItems,
+                    'avg_price' => $totalQty > 0 ? round($totalRevenue / $totalQty, 2) : 0,
+                ],
+            ]);
+        }
+
+        // ---------- Branch breakdown ----------
+        if ($groupBy === 'branch') {
+            $branchQuery = DB::table('sales')
+                ->join('branches', 'sales.branch_id', '=', 'branches.id')
+                ->select(
+                    'branches.id as branch_id',
+                    'branches.name as branch_name',
+                    DB::raw('COUNT(DISTINCT sales.id) as transaction_count'),
+                    DB::raw('SUM(sales.total) as total_sales'),
+                    DB::raw('ROUND(AVG(sales.total), 2) as avg_transaction')
+                )
+                ->whereBetween('sales.sale_date', [$validated['start_date'], $validated['end_date']])
+                ->groupBy('branches.id', 'branches.name')
+                ->orderByDesc('total_sales');
+
+            // Items sold per branch
+            $branchItems = DB::table('sale_items')
+                ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+                ->select(
+                    'sales.branch_id',
+                    DB::raw('SUM(sale_items.quantity) as total_items')
+                )
+                ->whereBetween('sales.sale_date', [$validated['start_date'], $validated['end_date']])
+                ->groupBy('sales.branch_id')
+                ->get()
+                ->keyBy('branch_id');
+
+            $branchResult = $branchQuery->get()->map(function ($b) use ($branchItems) {
+                $itemsData = $branchItems->get($b->branch_id);
+                return [
+                    'branch_id' => $b->branch_id,
+                    'branch_name' => $b->branch_name,
+                    'transaction_count' => (int) $b->transaction_count,
+                    'total_sales' => (float) $b->total_sales,
+                    'avg_transaction' => (float) $b->avg_transaction,
+                    'total_items' => $itemsData ? (int) $itemsData->total_items : 0,
+                ];
+            });
+
+            return response()->json([
+                'data' => $branchResult,
+                'summary' => [
+                    'total_revenue' => $branchResult->sum('total_sales'),
+                    'total_transactions' => $branchResult->sum('transaction_count'),
+                    'total_branches' => $branchResult->count(),
+                    'avg_branch_revenue' => $branchResult->count() > 0
+                        ? round($branchResult->sum('total_sales') / $branchResult->count(), 2)
+                        : 0,
+                    'top_branch' => $branchResult->first()['branch_name'] ?? '-',
                 ],
             ]);
         }
@@ -160,7 +257,7 @@ class ReportController extends Controller
         $quantity = (float) $stock->quantity;
         $unitCost = (float) $product->price;
         $totalValueRow = $quantity * $unitCost;
-        $minStock = (float) $stock->minimum_stock;
+        $minStock = max((float) $stock->minimum_stock, 15);
 
         if ($quantity <= 0) {
             $status = 'Out of Stock';
@@ -192,8 +289,59 @@ class ReportController extends Controller
         $totalValue += $totalValueRow;
     }
 
+    // --- Stock Movements ---
+    $movementLimit = 50;
+
+    // IN: stock deliveries received
+    $deliveryMovements = \App\Models\ProductStockDelivery::with(['product', 'branch'])
+        ->whereNotNull('received_at')
+        ->when(!empty($validated['branch_id']), fn($q) => $q->where('branch_id', $validated['branch_id']))
+        ->orderByDesc('received_at')
+        ->limit($movementLimit)
+        ->get()
+        ->map(fn($d) => [
+            'id'            => 'del-' . $d->id,
+            'created_at'    => $d->received_at,
+            'item_name'     => $d->product->name ?? 'Unknown',
+            'movement_type' => 'IN',
+            'quantity'      => (int) $d->quantity,
+            'branch_name'   => $d->branch->name ?? 'N/A',
+            'reference'     => 'Delivery #' . $d->id,
+            'notes'         => 'Restocked delivery',
+        ]);
+
+    // OUT: products sold via sales
+    $saleMovements = DB::table('sale_items')
+        ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+        ->join('products', 'sale_items.product_id', '=', 'products.id')
+        ->leftJoin('branches', 'sales.branch_id', '=', 'branches.id')
+        ->select(
+            'sale_items.id',
+            'sales.sale_date as created_at',
+            'products.name as item_name',
+            DB::raw("'OUT' as movement_type"),
+            'sale_items.quantity',
+            DB::raw('COALESCE(branches.name, "N/A") as branch_name'),
+            DB::raw('CONCAT("Sale #", sales.id) as reference'),
+            DB::raw('"Sold via POS" as notes')
+        )
+        ->when(!empty($validated['branch_id']), fn($q) => $q->where('sales.branch_id', $validated['branch_id']))
+        ->orderByDesc('sales.sale_date')
+        ->limit($movementLimit)
+        ->get()
+        ->map(fn($r) => (array) $r);
+
+    // Merge and sort by date descending, take top N
+    $allMovements = $deliveryMovements->values()
+        ->concat(collect($saleMovements))
+        ->sortByDesc('created_at')
+        ->values()
+        ->take($movementLimit)
+        ->all();
+
     return response()->json([
         'data' => $data,
+        'movements' => $allMovements,
         'pagination' => [
             'current_page' => $stocks->currentPage(),
             'last_page'    => $stocks->lastPage(),
@@ -243,7 +391,7 @@ class ReportController extends Controller
     $attendance = $query->orderBy('date', 'desc')->paginate($perPage, ['*'], 'page', $page);
 
     // Transform each record
-    $transformed = $attendance->items()->map(function ($record) {
+    $transformed = collect($attendance->items())->map(function ($record) {
         $user = $record->user;
         $name = $user ? ($user->firstname . ' ' . $user->lastname) : 'Unknown';
         // Get position from first active branch assignment
@@ -401,7 +549,7 @@ class ReportController extends Controller
             $hoursWorked = 0;
         }
 
-        // Calculate earnings (12-hour workday)
+        // Calculate earnings (12-hour workday: 9am-9pm)
         if ($hoursWorked <= 12) {
             $dailyEarnings = ($hoursWorked / 12) * $dailyRate;
         } else {
@@ -416,7 +564,6 @@ class ReportController extends Controller
 
         // Initialize user payroll record if not exists
         if (!isset($payrollByUser[$userId])) {
-            // Get monthly deductions
             $monthlySss = $deductions ? $deductions->sss : 0;
             $monthlyPhilhealth = $deductions ? $deductions->philhealth : 0;
             $monthlyPagibig = $deductions ? $deductions->pagibig : 0;
@@ -450,7 +597,7 @@ class ReportController extends Controller
         $payrollByUser[$userId]['total_hours'] += $hoursWorked;
         $payrollByUser[$userId]['gross_pay'] += $dailyEarnings;
         
-        // Late deductions (these are daily)
+        // Late deductions (daily)
         if ($record->is_late) {
             $payrollByUser[$userId]['late_deduction'] += ($record->late_minutes * 5);
             $payrollByUser[$userId]['late_count']++;
@@ -462,6 +609,35 @@ class ReportController extends Controller
             $dailyIncentives += 500 / 22;
         }
         $payrollByUser[$userId]['incentives'] += $dailyIncentives;
+    }
+
+    // Prorate government deductions per day worked (same as PayrollController)
+    foreach ($payrollByUser as $userId => &$userPayroll) {
+        $days = $userPayroll['days_worked'];
+        if ($days > 0) {
+            $userPayroll['sss_deduction'] = round($userPayroll['sss_deduction'] / 22 * $days, 2);
+            $userPayroll['philhealth_deduction'] = round($userPayroll['philhealth_deduction'] / 22 * $days, 2);
+            $userPayroll['pagibig_deduction'] = round($userPayroll['pagibig_deduction'] / 22 * $days, 2);
+            $userPayroll['cash_advance_deduction'] = round($userPayroll['cash_advance_deduction'] / 22 * $days, 2);
+            $userPayroll['tax_deduction'] = round($userPayroll['tax_deduction'] / 22 * $days, 2);
+        }
+    }
+    unset($userPayroll);
+
+    // Add product quota incentive: every 40 products sold = ₱100
+    $productCounts = DB::table('sale_items')
+        ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+        ->whereMonth('sales.sale_date', $monthNum)
+        ->whereYear('sales.sale_date', $yearNum)
+        ->select('sales.user_id', DB::raw('SUM(sale_items.quantity) as total_products_sold'))
+        ->groupBy('sales.user_id')
+        ->get();
+    foreach ($productCounts as $row) {
+        $userId = $row->user_id;
+        if (isset($payrollByUser[$userId])) {
+            $productIncentive = floor((int) $row->total_products_sold / 40) * 100;
+            $payrollByUser[$userId]['incentives'] += $productIncentive;
+        }
     }
 
     // ✅ Calculate final totals for each user with validation
@@ -566,28 +742,48 @@ class ReportController extends Controller
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $perPage = $validated['per_page'] ?? 5;
+        $perPage = $validated['per_page'] ?? 15;
         $page = $validated['page'] ?? 1;
+
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
+
+        // Compute previous period for growth calculation
+        $prevStart = null;
+        $prevEnd = null;
+        if ($startDate && $endDate) {
+            $startDt = Carbon::parse($startDate);
+            $endDt = Carbon::parse($endDate);
+            $periodDays = $startDt->diffInDays($endDt);
+            $prevEnd = $startDt->subDay()->toDateString();
+            $prevStart = $startDt->subDays($periodDays)->toDateString();
+        }
 
         $branches = DB::table('branches')->get();
 
         $branchData = [];
         foreach ($branches as $branch) {
             $salesQuery = DB::table('sales')->where('branch_id', $branch->id);
-            
-            if ($request->has('start_date') && $request->has('end_date')) {
-                $salesQuery->whereBetween('sale_date', [$validated['start_date'], $validated['end_date']]);
+            if ($startDate && $endDate) {
+                $salesQuery->whereBetween('sale_date', [$startDate, $endDate]);
             }
-
-            $totalSales = $salesQuery->sum('total');
+            $totalSales = (float) $salesQuery->sum('total');
             $transactionCount = $salesQuery->count();
 
-            // Get staff count for this branch
+            // Previous period sales for growth
+            $growth = null;
+            if ($prevStart && $prevEnd) {
+                $prevSales = (float) DB::table('sales')
+                    ->where('branch_id', $branch->id)
+                    ->whereBetween('sale_date', [$prevStart, $prevEnd])
+                    ->sum('total');
+                $growth = $prevSales > 0 ? round((($totalSales - $prevSales) / $prevSales) * 100, 1) : ($totalSales > 0 ? 100.0 : 0.0);
+            }
+
             $staffCount = StaffAssignment::where('branch_id', $branch->id)
                 ->where('is_active', true)
                 ->count();
 
-            // Get inventory count
             $inventoryCount = ProductStock::where('branch_id', $branch->id)
                 ->where('quantity', '>', 0)
                 ->count();
@@ -596,24 +792,27 @@ class ReportController extends Controller
                 'id' => $branch->id,
                 'name' => $branch->name,
                 'location' => $branch->location ?? 'N/A',
-                'total_sales' => (float) $totalSales,
+                'total_sales' => $totalSales,
                 'transaction_count' => $transactionCount,
                 'staff_count' => $staffCount,
                 'inventory_count' => $inventoryCount,
-                'average_transaction' => $transactionCount > 0 ? (float) ($totalSales / $transactionCount) : 0,
+                'avg_transaction' => $transactionCount > 0 ? round($totalSales / $transactionCount, 2) : 0,
+                'sales_per_staff' => $staffCount > 0 ? round($totalSales / $staffCount, 2) : 0,
+                'growth' => $growth,
             ];
         }
 
         // Sort by total sales descending
-        usort($branchData, function ($a, $b) {
-            return $b['total_sales'] <=> $a['total_sales'];
-        });
+        usort($branchData, fn($a, $b) => $b['total_sales'] <=> $a['total_sales']);
 
-        // Manual pagination for branch array
+        // Manual pagination
         $offset = ($page - 1) * $perPage;
         $paginatedData = array_slice($branchData, $offset, $perPage);
         $total = count($branchData);
         $lastPage = (int) ceil($total / $perPage);
+
+        $totalSalesAll = array_sum(array_column($branchData, 'total_sales'));
+        $totalTransactionsAll = array_sum(array_column($branchData, 'transaction_count'));
 
         return response()->json([
             'data' => $paginatedData,
@@ -624,9 +823,17 @@ class ReportController extends Controller
                 'total' => $total,
             ],
             'summary' => [
-                'total_branches' => count($branchData),
-                'total_sales' => array_sum(array_column($branchData, 'total_sales')),
-                'total_transactions' => array_sum(array_column($branchData, 'transaction_count')),
+                'total_branches' => $total,
+                'total_revenue' => $totalSalesAll,
+                'total_transactions' => $totalTransactionsAll,
+                'avg_branch_revenue' => $total > 0 ? round($totalSalesAll / $total, 2) : 0,
+                'top_branch' => $branchData[0]['name'] ?? '-',
+                'performance_distribution' => collect($branchData)->map(fn($b) => [
+                    'branch_id' => $b['id'],
+                    'branch_name' => $b['name'],
+                    'revenue' => $b['total_sales'],
+                    'percentage' => $totalSalesAll > 0 ? round(($b['total_sales'] / $totalSalesAll) * 100, 1) : 0,
+                ])->values()->all(),
             ],
         ]);
     }
@@ -735,5 +942,91 @@ class ReportController extends Controller
             'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
         ], 500);
     }
-}   
+}
+    /**
+     * Delivery Report
+     * GET /api/reports/deliveries
+     * Params: start_date, end_date, status (optional), branch_id (optional), rider_id (optional)
+     */
+    public function deliveries(Request $request)
+    {
+        try {
+            $query = \App\Models\Order::with(['user', 'rider', 'branch', 'items.product'])
+                ->whereIn('status', ['ready', 'picked_up', 'out_for_delivery', 'delivered']);
+
+            if ($request->filled('start_date') && $request->filled('end_date')) {
+                $query->whereBetween('created_at', [
+                    $request->start_date . ' 00:00:00',
+                    $request->end_date . ' 23:59:59'
+                ]);
+            }
+
+            if ($request->filled('status') && $request->status !== 'all') {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->filled('branch_id') && $request->branch_id !== 'all') {
+                $query->where('branch_id', $request->branch_id);
+            }
+
+            if ($request->filled('rider_id') && $request->rider_id !== 'all') {
+                $query->where('rider_id', $request->rider_id);
+            }
+
+            $perPage = $request->per_page ?? 10;
+            $orders = $query->latest()->paginate($perPage);
+
+            $storageUrl = $request->getSchemeAndHttpHost() . '/storage/';
+            $transformed = collect($orders->items())->map(function ($order) use ($storageUrl) {
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_name' => $order->user?->full_name ?? $order->user?->firstname ?? 'Customer',
+                    'customer_phone' => $order->user?->phone,
+                    'delivery_address' => $order->delivery_address,
+                    'branch_name' => $order->branch?->name ?? 'N/A',
+                    'rider_name' => $order->rider?->full_name ?? $order->rider?->firstname ?? 'Unassigned',
+                    'rider_phone' => $order->rider?->phone,
+                    'status' => $order->status,
+                    'total' => (float) $order->total,
+                    'payment_method' => $order->payment_method,
+                    'items_count' => $order->items->count(),
+                    'delivery_photo' => $order->delivery_photo ? $storageUrl . $order->delivery_photo : null,
+                    'delivery_notes' => $order->delivery_notes,
+                    'delivered_at' => $order->delivered_at,
+                    'delivery_latitude' => $order->delivery_latitude,
+                    'delivery_longitude' => $order->delivery_longitude,
+                    'rider_latitude' => $order->rider_latitude,
+                    'rider_longitude' => $order->rider_longitude,
+                    'created_at' => $order->created_at->toIso8601String(),
+                ];
+            });
+
+            $summary = [
+                'total_deliveries' => $orders->total(),
+                'delivered' => \App\Models\Order::where('status', 'delivered')->count(),
+                'out_for_delivery' => \App\Models\Order::where('status', 'out_for_delivery')->count(),
+                'picked_up' => \App\Models\Order::where('status', 'picked_up')->count(),
+                'ready' => \App\Models\Order::where('status', 'ready')->count(),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $transformed,
+                'summary' => $summary,
+                'pagination' => [
+                    'current_page' => $orders->currentPage(),
+                    'per_page' => $orders->perPage(),
+                    'total' => $orders->total(),
+                    'last_page' => $orders->lastPage(),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Deliveries report error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch delivery records',
+            ], 500);
+        }
+    }
 }

@@ -1,17 +1,18 @@
 import React from "react";
+import { Layout } from "antd";
 import MenuSidebar from "./Menu";
+
+const { Content } = Layout;
 
 function MenuLayout({ children }) {
   return (
-    <div className="flex h-screen overflow-hidden">
+    <Layout style={{ minHeight: "100vh" }}>
       <MenuSidebar />
-
-      <div className="flex-1 h-full min-h-0 overflow-y-auto overflow-x-hidden p-6 bg-gray-100">
+      <Content style={{ background: "#dedde2", overflow: "auto" }}>
         {children}
-      </div>
-    </div>
+      </Content>
+    </Layout>
   );
 }
 
 export default MenuLayout;
-  

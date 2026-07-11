@@ -1,32 +1,26 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Form, Input, Button, Alert, Card, Typography } from "antd";
+import { UserOutlined, LockOutlined, EyeInvisibleOutlined, EyeTwoTone } from "@ant-design/icons";
 import { api } from "../config/api";
 import logo from "../assets/logooos.jpg";
 
+const { Title, Text } = Typography;
+
 function Login() {
-  const [form, setForm] = useState({
-    username: "",
-    password: "",
-  });
+  const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleLogin = async (values) => {
     setError("");
-
-    if (!form.username || !form.password) {
-      setError("Please enter username and password");
-      return;
-    }
-
     setLoading(true);
 
     try {
       const response = await api.post("/admin/login", {
-        username: form.username,
-        password: form.password,
+        username: values.username,
+        password: values.password,
       });
 
       const { token, user, role } = response.data;
@@ -51,109 +45,145 @@ function Login() {
     }
   };
 
-  const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
-    setError(""); // Clear error when user types
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white-500 to-purple-600 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+        padding: 16,
+      }}
+    >
+      <Card
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          borderRadius: 16,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+          overflow: "hidden",
+          border: "none",
+        }}
+        styles={{ body: { padding: 0 } }}
+      >
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white text-center">
-          <div className="mb-4 flex justify-center">
+        <div
+          style={{
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            padding: "32px 24px 28px",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: 20,
+              overflow: "hidden",
+              margin: "0 auto 16px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+              border: "3px solid rgba(255,255,255,0.3)",
+            }}
+          >
             <img
               src={logo}
               alt="New Moon Lechon Manok & Liempo"
-              className="w-24 h-24 rounded-2xl object-cover shadow-lg ring-2 ring-white/30"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           </div>
-          <h2 className="text-2xl font-bold">Welcome Back</h2>
-          <p className="text-blue-100 mt-2">Sign in to your account</p>
+          <Title level={3} style={{ color: "#fff", margin: 0, fontWeight: 700 }}>
+            Welcome Back
+          </Title>
+          <Text style={{ color: "rgba(255,255,255,0.75)", marginTop: 4, display: "block" }}>
+            Sign in to continue to your account
+          </Text>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleLogin} className="p-6 space-y-4">
+        <div style={{ padding: "28px 24px 32px" }}>
           {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-              </div>
-            </div>
+            <Alert
+              message={error}
+              type="error"
+              showIcon
+              closable
+              onClose={() => setError("")}
+              style={{ marginBottom: 20, borderRadius: 8 }}
+            />
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-              <input
-                name="username"
-                type="text"
-                placeholder="Enter your username"
-                value={form.username}
-                onChange={handleChange}
-                className="pl-10 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <input
-                type="password"
-                name="password"
-                placeholder="Enter your password"
-                value={form.password}
-                onChange={handleChange}
-                className="pl-10 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={handleLogin}
+            requiredMark={false}
+            size="large"
           >
-            {loading ? (
-              <div className="flex items-center justify-center">
-                <svg className="animate-spin h-5 w-5 mr-3 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Logging in...
-              </div>
-            ) : (
-              "Sign In"
-            )}
-          </button>
-        </form>
+            <Form.Item
+              name="username"
+              rules={[{ required: true, message: "Please enter your username" }]}
+              style={{ marginBottom: 20 }}
+            >
+              <Input
+                prefix={<UserOutlined style={{ color: "#bfbfbf" }} />}
+                placeholder="Username"
+                autoFocus
+                style={{ borderRadius: 8, height: 44 }}
+              />
+            </Form.Item>
 
-      </div>
+            <Form.Item
+              name="password"
+              rules={[{ required: true, message: "Please enter your password" }]}
+              style={{ marginBottom: 8 }}
+            >
+              <Input.Password
+                prefix={<LockOutlined style={{ color: "#bfbfbf" }} />}
+                placeholder="Password"
+                iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
+                style={{ borderRadius: 8, height: 44 }}
+              />
+            </Form.Item>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                marginBottom: 24,
+              }}
+            >
+              <Button
+                type="link"
+                style={{ padding: 0, fontSize: 13 }}
+              >
+                Forgot password?
+              </Button>
+            </div>
+
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
+                block
+                size="large"
+                style={{
+                  height: 46,
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  border: "none",
+                  fontWeight: 600,
+                  fontSize: 15,
+                  boxShadow: "0 4px 14px rgba(102, 126, 234, 0.4)",
+                }}
+              >
+                Sign In
+              </Button>
+            </Form.Item>
+          </Form>
+        </div>
+      </Card>
     </div>
   );
 }

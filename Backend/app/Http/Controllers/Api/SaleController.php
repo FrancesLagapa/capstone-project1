@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ProductStock;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\StockBatch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -36,125 +37,6 @@ class SaleController extends Controller
         $sales = $query->orderBy('created_at', 'desc')->paginate(5);
 
         return response()->json($sales);
-    }
-
-    /**
-     * Lightweight endpoint for EmployeeTracker (fast, small payload).
-     * Returns:
-     *  - checkoutRows: transaction-level rows with itemsCount
-     *  - staffAgg: per-user aggregates + topProductName
-     *
-     * Query params:
-     *  - date (required): YYYY-MM-DD
-     *  - branch_id (optional)
-     */
-    public function tracker(Request $request)
-    {
-        $validated = $request->validate([
-            'date' => 'required|date',
-            'branch_id' => 'nullable|exists:branches,id',
-        ]);
-
-        $date = $validated['date'];
-        $branchId = $validated['branch_id'] ?? null;
-
-        $salesQuery = DB::table('sales')
-            ->where(function ($q) use ($date) {
-                $q->whereDate('sales.sale_date', $date)
-                    ->orWhereRaw("DATE(CONVERT_TZ(sales.created_at, '+00:00', '+08:00')) = ?", [$date]);
-            });
-
-        if ($branchId) {
-            $salesQuery->where('branch_id', $branchId);
-        }
-
-        // Checkout rows (transaction list) + items count
-        $checkoutRows = $salesQuery
-            ->leftJoin('sale_items', 'sales.id', '=', 'sale_items.sale_id')
-            ->select(
-                'sales.id',
-                'sales.invoice_number',
-                'sales.user_id',
-                'sales.branch_id',
-                'sales.customer_name',
-                'sales.created_at',
-                'sales.sale_date',
-                'sales.subtotal',
-                'sales.discount_amount',
-                'sales.senior_discount',
-                'sales.total',
-                'sales.cash_collected',
-                'sales.change_given',
-                DB::raw('COALESCE(SUM(sale_items.quantity), 0) as items_count')
-            )
-            ->groupBy(
-                'sales.id',
-                'sales.invoice_number',
-                'sales.user_id',
-                'sales.branch_id',
-                'sales.customer_name',
-                'sales.created_at',
-                'sales.sale_date',
-                'sales.subtotal',
-                'sales.discount_amount',
-                'sales.senior_discount',
-                'sales.total',
-                'sales.cash_collected',
-                'sales.change_given'
-            )
-            ->orderBy('sales.created_at', 'desc')
-            ->get();
-
-        // Per-staff aggregates
-        $staffAgg = DB::table('sales')
-            ->leftJoin('sale_items', 'sales.id', '=', 'sale_items.sale_id')
-            ->where(function ($q) use ($date) {
-                $q->whereDate('sales.sale_date', $date)
-                    ->orWhereRaw("DATE(CONVERT_TZ(sales.created_at, '+00:00', '+08:00')) = ?", [$date]);
-            })
-            ->when($branchId, fn ($q) => $q->where('sales.branch_id', $branchId))
-            ->select(
-                'sales.user_id',
-                DB::raw('COUNT(DISTINCT sales.id) as checkout_count'),
-                DB::raw('COALESCE(SUM(sale_items.quantity), 0) as total_items_sold'),
-                DB::raw('COALESCE(SUM(sales.total), 0) as gross_total'),
-                DB::raw('COALESCE(SUM(sales.cash_collected), 0) as cash_collected'),
-                DB::raw('COALESCE(SUM(sales.change_given), 0) as change_given'),
-                DB::raw('COALESCE(SUM(CASE WHEN sales.senior_discount = 1 THEN 1 ELSE 0 END), 0) as senior_discount_count'),
-                DB::raw('COALESCE(SUM(CASE WHEN sales.senior_discount = 1 THEN sales.discount_amount ELSE 0 END), 0) as senior_discount_total')
-            )
-            ->groupBy('sales.user_id')
-            ->get()
-            ->keyBy('user_id');
-
-        // Top product per staff for the day (by quantity)
-        $topProducts = DB::table('sale_items')
-            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->join('products', 'sale_items.product_id', '=', 'products.id')
-            ->where(function ($q) use ($date) {
-                $q->whereDate('sales.sale_date', $date)
-                    ->orWhereRaw("DATE(CONVERT_TZ(sales.created_at, '+00:00', '+08:00')) = ?", [$date]);
-            })
-            ->when($branchId, fn ($q) => $q->where('sales.branch_id', $branchId))
-            ->select(
-                'sales.user_id',
-                'products.name as product_name',
-                DB::raw('SUM(sale_items.quantity) as qty')
-            )
-            ->groupBy('sales.user_id', 'products.name')
-            ->orderBy('qty', 'desc')
-            ->get()
-            ->groupBy('user_id')
-            ->map(function ($rows) {
-                $first = $rows->first();
-                return $first ? $first->product_name : null;
-            });
-
-        return response()->json([
-            'checkoutRows' => $checkoutRows,
-            'staffAgg' => $staffAgg,
-            'topProducts' => $topProducts,
-        ]);
     }
 
     public function store(Request $request)
@@ -201,7 +83,7 @@ class SaleController extends Controller
                     'line_total' => $total,
                 ]);
 
-                // Check and update stock
+                // Check and update stock (FIFO)
                 $stock = ProductStock::where('product_id', $item['product_id'])
                     ->where('branch_id', $validated['branch_id'])
                     ->first();
@@ -209,6 +91,22 @@ class SaleController extends Controller
                 $avail = round((float) ($stock->quantity ?? 0), 2);
                 if (! $stock || $avail + 0.00001 < $qty) {
                     throw new \Exception("Insufficient stock for product: {$product->name}");
+                }
+
+                // Deduct from oldest batches first (FIFO)
+                $remainingQty = $qty;
+                $batches = StockBatch::where('product_id', $item['product_id'])
+                    ->where('branch_id', $validated['branch_id'])
+                    ->where('remaining', '>', 0)
+                    ->orderBy('received_at')
+                    ->orderBy('id')
+                    ->get();
+
+                foreach ($batches as $batch) {
+                    if ($remainingQty <= 0) break;
+                    $deduct = min($batch->remaining, $remainingQty);
+                    $batch->decrement('remaining', $deduct);
+                    $remainingQty -= $deduct;
                 }
 
                 $stock->decrement('quantity', $qty);

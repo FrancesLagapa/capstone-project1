@@ -8,8 +8,10 @@ import {
   DownOutlined,
   RightOutlined,
   WalletOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
+import { Avatar } from "antd";
 import { api } from "../config/api";
 
 const DAILY_RECORDS_PAGE_SIZE = 8;
@@ -31,8 +33,9 @@ function computeGovernmentDeductionsFromMonthlyGross(monthlyGross) {
 }
 
 function formatCurrency(amount) {
-  if (!amount && amount !== 0) return "₱0.00";
-  return `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const num = Number(amount);
+  if (isNaN(num)) return "₱0.00";
+  return `₱${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function PayrollView() {
@@ -217,18 +220,11 @@ function PayrollView() {
     const monthlyGross = employeeMonthlySummary.totalGrossPay || 0;
     const gov = computeGovernmentDeductionsFromMonthlyGross(monthlyGross);
 
-    // Get cash advances for the period (approved ones)
-    const userCashAdvances = cashAdvances[userId] || [];
-    const totalCashAdvance = userCashAdvances
-      .filter(ca => ca.status === 'approved')
-      .reduce((sum, ca) => sum + ca.amount, 0);
-
     return (
       gov.sss +
       gov.philhealth +
       gov.pagibig +
       (staffDeductions.cashAdvance || 0) +
-      totalCashAdvance +
       (staffDeductions.otherDeductions || 0)
     );
   };
@@ -640,18 +636,8 @@ function PayrollView() {
       const response = await api.get("/cash-advances", {
         params: { month: parseInt(month), year: parseInt(year) }
       });
-      
-      // Group cash advances by user_id
-      const grouped = {};
-      if (Array.isArray(response.data)) {
-        response.data.forEach(advance => {
-          if (!grouped[advance.user_id]) {
-            grouped[advance.user_id] = [];
-          }
-          grouped[advance.user_id].push(advance);
-        });
-      }
-      setCashAdvances(grouped);
+
+      setCashAdvances(response.data || {});
     } catch (error) {
       console.error("Error loading cash advances:", error);
       setCashAdvances({});
@@ -746,7 +732,7 @@ function PayrollView() {
       // Get cash advances for this employee
       const userCashAdvances = cashAdvances[employee.userId] || [];
       const approvedAdvances = userCashAdvances.filter(ca => ca.status === 'approved');
-      const totalCashAdvance = approvedAdvances.reduce((sum, ca) => sum + ca.amount, 0);
+      const totalCashAdvance = approvedAdvances.reduce((sum, ca) => sum + Number(ca.amount), 0);
 
       const monthlySummaryData = {
         totalGrossPay,
@@ -1119,10 +1105,18 @@ function PayrollView() {
                               )}
                             </button>
                             <div>
-                              <div className="font-medium text-gray-800">{employee.staffName}</div>
+                              <div className="flex items-center gap-2">
+                                <Avatar size={28} icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
+                                <div className="font-medium text-gray-800">{employee.staffName}</div>
+                              </div>
                               <div className="text-xs text-gray-500">
                                 Daily Rate: {formatCurrency(employee.dailyRate)}
                               </div>
+                              {employee.monthlySummary.productsSold > 0 && (
+                                <div className={`text-xs font-medium mt-1 ${employee.monthlySummary.productsSold >= 40 ? 'text-green-600' : 'text-amber-600'}`}>
+                                  {employee.monthlySummary.productsSold >= 40 ? '✅' : '📦'} {employee.monthlySummary.productsSold}{employee.monthlySummary.productsSold >= 40 ? ' pcs sold — ₱100 incentive' : '/40 pcs quota'}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>

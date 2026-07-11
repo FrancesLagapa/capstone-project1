@@ -13,12 +13,6 @@ export function getBranchIdFromUser(user: any): string | null {
   const u = normalizeUser(user);
   if (!u) return null;
 
-  // Check for offline user with default branch
-  if (u.offline && u.branch_id != null) {
-    console.log('[STAFF CONTEXT] Using offline branch_id:', u.branch_id);
-    return String(u.branch_id);
-  }
-
   if (u.branch_id != null) return String(u.branch_id);
   if (u.branchId != null) return String(u.branchId);
   if (u.branch?.id != null) return String(u.branch.id);
@@ -171,7 +165,6 @@ export async function cacheStaffContextAfterLogin(user: any): Promise<any> {
   }
 
   await saveUser(normalized);
-  console.log('[STAFF CONTEXT] Caching user data for offline use');
   
   try {
     const { user: resolved, branchId } = await resolveStaffBranch(normalized);

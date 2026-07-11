@@ -374,15 +374,15 @@ function RequestAdmin() {
       <Card className="mb-6">
         <Space>
           <span className="text-gray-600">Filter by status:</span>
-          <Select
+            <Select
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
           >
-            <Option value="all">All</Option>
-            <Option value="pending">Pending</Option>
-            <Option value="approved">Approved</Option>
-            <Option value="rejected">Rejected</Option>
+            <Select.Option value="all">All</Select.Option>
+            <Select.Option value="pending">Pending</Select.Option>
+            <Select.Option value="approved">Approved</Select.Option>
+            <Select.Option value="rejected">Rejected</Select.Option>
           </Select>
           <Button
             icon={<ReloadOutlined />}

@@ -1,12 +1,19 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { 
-  PlusOutlined, 
+import { Card, Button, Modal, Form, Input, Statistic, Row, Col, Tag, Space, message, Badge } from "antd";
+import {
+  PlusOutlined,
   ShopOutlined,
   StockOutlined,
   ProductOutlined,
-  TeamOutlined, 
-  ReloadOutlined
+  TeamOutlined,
+  ReloadOutlined,
+  WarningOutlined,
+  ShoppingCartOutlined,
+  FireOutlined,
+  StarOutlined,
+  ClockCircleOutlined,
+  InfoCircleOutlined,
 } from "@ant-design/icons";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPesoSign } from '@fortawesome/free-solid-svg-icons';
@@ -23,12 +30,14 @@ function Dashboard() {
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [formName, setFormName] = useState("");
-  const [formCode, setFormCode] = useState("");
-  const [formAddress, setFormAddress] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [lowStockItems, setLowStockItems] = useState([]);
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [dismissedLowStock, setDismissedLowStock] = useState(() => {
+    return sessionStorage.getItem('dismissed_low_stock') === 'true';
+  });
+  const [addBranchForm] = Form.useForm();
 
-  // Update current time
   useEffect(() => {
     const updatePHTime = () => {
       const now = new Date();
@@ -36,7 +45,6 @@ function Dashboard() {
       const phTime = new Date(utc + 8 * 60 * 60 * 1000);
       setCurrentTime(phTime);
     };
-
     updatePHTime();
     const timer = setInterval(updatePHTime, 1000);
     return () => clearInterval(timer);
@@ -45,16 +53,14 @@ function Dashboard() {
   const loadDashboardData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setLoadError("");
-    
+
     try {
-      // Try to get data from cache first
       const cachedBranches = forceRefresh ? null : getCache('branches');
       const cachedStaff = forceRefresh ? null : getCache('staff');
       const cachedSales = forceRefresh ? null : getCache('sales');
       const cachedProducts = forceRefresh ? null : getCache('products');
 
-      // If all data is cached and valid, use it
-      if (cachedBranches && cachedStaff && cachedSales && cachedProducts) {
+      if (cachedBranches?.length && cachedStaff?.length && cachedSales?.length && cachedProducts?.length) {
         setBranches(cachedBranches);
         setStaff(cachedStaff);
         setSales(cachedSales);
@@ -63,7 +69,6 @@ function Dashboard() {
         return;
       }
 
-      // Otherwise, fetch from backend
       const results = await Promise.allSettled([
         cachedBranches ? Promise.resolve({ data: cachedBranches }) : api.get("/branches"),
         cachedStaff ? Promise.resolve({ data: cachedStaff }) : api.get("/staff"),
@@ -76,10 +81,7 @@ function Dashboard() {
       if (rejectedIdx !== -1) {
         const reason = results[rejectedIdx].reason;
         const status = reason?.response?.status;
-        const backendMessage =
-          reason?.response?.data?.message ||
-          reason?.response?.data?.error ||
-          reason?.message;
+        const backendMessage = reason?.response?.data?.message || reason?.response?.data?.error || reason?.message;
 
         if (status === 401 || status === 419) {
           localStorage.removeItem("token");
@@ -102,19 +104,14 @@ function Dashboard() {
       const salesRes = results[2].value;
       const productsRes = results[3].value;
 
-      // Map staff with a convenient branch_id fallback (do not rely on this for counting)
       const staffRows = (staffRes.data?.data || []).map((s) => {
         const assignments = Array.isArray(s.branchAssignments)
           ? s.branchAssignments
           : Array.isArray(s.branch_assignments)
             ? s.branch_assignments
             : [];
-        const branchId =
-          assignments?.[0]?.branch_id || s.branch_id || s.branchId || null;
-        return {
-          ...s,
-          branch_id: branchId,
-        };
+        const branchId = assignments?.[0]?.branch_id || s.branch_id || s.branchId || null;
+        return { ...s, branch_id: branchId };
       });
 
       const branchesData = branchesRes.data?.data || [];
@@ -127,7 +124,29 @@ function Dashboard() {
       setSales(salesData);
       setProducts(productsData);
 
-      // Cache the fetched data (5 minutes TTL)
+      const lowStock = [];
+      for (const product of productsData) {
+        if (!product.product_stocks) continue;
+        for (const stock of product.product_stocks) {
+          const qty = parseQuantity(stock?.quantity);
+          const minStock = parseInt(stock?.minimum_stock, 10) || 0;
+          if (minStock > 0 && qty > 0 && qty < minStock) {
+            const branch = branchesData.find(b => String(b.id) === String(stock.branch_id));
+            lowStock.push({
+              product_name: product.name,
+              product_sku: product.sku,
+              branch_name: branch?.name || `Branch #${stock.branch_id}`,
+              quantity: qty,
+              minimum_stock: minStock,
+            });
+          }
+        }
+      }
+      setLowStockItems(lowStock);
+      if (lowStock.length > 0 && !dismissedLowStock) {
+        setShowLowStockModal(true);
+      }
+
       setCache('branches', branchesData);
       setCache('staff', staffData);
       setCache('sales', salesData);
@@ -135,7 +154,7 @@ function Dashboard() {
     } catch (err) {
       const msg = err?.message || "Failed to load dashboard data from backend.";
       setLoadError(msg);
-      alert(msg);
+      message.error(msg);
     } finally {
       setLoading(false);
     }
@@ -145,10 +164,6 @@ function Dashboard() {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  const handleOpen = () => setIsModalOpen(true);
-  const handleClose = () => setIsModalOpen(false);
-
-  /** API may send quantity as string; using + with strings concatenates ("93" + "96" → "9396"). */
   const parseQuantity = (value) => {
     if (value === null || value === undefined || value === "") return 0;
     const n = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) : Number(value);
@@ -175,9 +190,7 @@ function Dashboard() {
 
   const getBranchStaffCount = (branchId) => {
     const target = String(branchId);
-
     return staff.filter((s) => {
-      // Prefer assignments from backend relation (supports multiple assignments)
       const assignments = Array.isArray(s.branchAssignments)
         ? s.branchAssignments
         : Array.isArray(s.branch_assignments)
@@ -190,323 +203,347 @@ function Dashboard() {
           return a.branch_id != null && String(a.branch_id) === target;
         });
       }
-
-      // Fallback for older payloads or locally-mapped staff objects
       if (s.branch_id == null || s.branch_id === "") return false;
       return String(s.branch_id) === target;
     }).length;
   };
 
-  const handleSubmit = async () => {
-    if (!formName) {
-      alert("Branch name is required");
-      return;
-    }
-
-    if (!formCode) {
-      alert("Branch code is required");
-      return;
-    }
-
-    if (!formAddress) {
-      alert("Branch address is required");
-      return;
-    }
-
+  const handleAddBranch = async (values) => {
     try {
       const { data } = await api.post("/branches", {
-        name: formName,
-        code: formCode,
-        address: formAddress,
+        name: values.name,
+        code: values.code,
+        address: values.address,
       });
       setBranches((prev) => [...prev, data]);
-      setFormName("");
-      setFormCode("");
-      setFormAddress("");
+      addBranchForm.resetFields();
       setIsModalOpen(false);
-      
-      // Invalidate cache to reflect the new branch
       invalidateCache('branches');
-      
-      alert("Branch created successfully!");
+      message.success("Branch created successfully!");
     } catch (err) {
-      const msg = err?.response?.data?.message || "Failed to create branch";
-      alert(msg);
+      message.error(err?.response?.data?.message || "Failed to create branch");
     }
   };
 
-  const totalSales = sales.reduce(
-    (sum, sale) => sum + parseFloat(sale.total || 0),
-    0
-  );
+  const totalSales = sales.reduce((sum, sale) => sum + parseFloat(sale.total || 0), 0);
+  const todaySales = sales.filter(sale => {
+    const today = new Date();
+    const saleDate = new Date(sale.created_at);
+    return saleDate.toDateString() === today.toDateString();
+  }).reduce((sum, sale) => sum + parseFloat(sale.total || 0), 0);
 
-  const formatCurrency = (amount) => {
-    return `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
-  };
-
-  const reports = [
-    { title: "Total Branches", value: branches.length, icon: <ShopOutlined className="text-xl text-blue-600" />, color: "blue" },
-    { title: "Total Staff", value: staff.length, icon: <TeamOutlined className="text-xl text-purple-600" />, color: "purple" },
-    { title: "Total Sales", value: formatCurrency(totalSales), icon: <FontAwesomeIcon icon={faPesoSign} className="text-xl text-red-600" />, color: "orange" },
-  ];
+  const formatCurrency = (amount) => `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between">
+    <div className="p-6 bg-gradient-to-br from-[#E3F2FD]/30 via-white to-[#FFEBEE]/30 min-h-screen">
+      {/* Header - FoodMeal Style */}
+      <div className="mb-6 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(229,57,53,0.2)] bg-gradient-to-br from-[#E53935] to-[#1A237E]">
+        <div className="px-8 py-6 relative">
+          {/* Decorative circles */}
+          <div className="absolute right-0 top-0 opacity-10">
+            <div className="w-64 h-64 rounded-full bg-white -mr-32 -mt-32"></div>
+          </div>
+          <div className="absolute bottom-0 left-1/3 opacity-5">
+            <div className="w-48 h-48 rounded-full bg-white"></div>
+          </div>
+          
+          <div className="flex items-center justify-between relative z-10">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">Dashboard Overview</h1>
-              <p className="text-gray-500 mt-1">Welcome back! Here's your business at a glance</p>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                <FireOutlined className="mr-2" />
+                Dashboard Overview
+              </h1>
+              <p className="text-white/80 text-sm">Welcome back! Here's your business at a glance</p>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-500">Current Philippines Time</p>
-              <p className="text-lg font-semibold">
+            <div className="bg-white/15 backdrop-blur-sm px-4 py-2 rounded-xl">
+              <p className="text-white/70 text-xs">Philippines Time</p>
+              <p className="text-white font-semibold text-lg">
                 {currentTime.toLocaleTimeString('en-PH', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-white/60 text-[10px]">
                 {currentTime.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
               </p>
             </div>
           </div>
+
+          {/* Quick Stats in Header */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 relative z-10">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Branches</p>
+              <p className="text-white font-bold text-xl">{branches.length}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Staff</p>
+              <p className="text-white font-bold text-xl">{staff.length}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Today's Sales</p>
+              <p className="text-white font-bold text-xl">{formatCurrency(todaySales)}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Sales</p>
+              <p className="text-white font-bold text-xl">{formatCurrency(totalSales)}</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        {loadError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-6">
-            {loadError}
-          </div>
-        )}
-        
-        {/* Action Buttons */}
-        <div className="flex justify-end gap-3 mb-6">
-          <button 
-            onClick={() => loadDashboardData(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-6">{loadError}</div>
+      )}
+
+      {/* Action Buttons - FoodMeal Style */}
+      <Card className="mb-6 rounded-xl border border-[#E3F2FD] shadow-sm">
+        <Space>
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => loadDashboardData(true)} 
+            loading={loading}
+            className="rounded-xl border-[#1A237E] text-[#1A237E] hover:bg-[#E3F2FD]"
           >
-            <ReloadOutlined />
             Refresh
-          </button>
-          <button 
-            onClick={handleOpen}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-green-600 hover:bg-green-700 transition-colors"
+          </Button>
+          <Button 
+            type="primary" 
+            icon={<PlusOutlined />} 
+            onClick={() => { addBranchForm.resetFields(); setIsModalOpen(true); }}
+            className="rounded-xl bg-gradient-to-br from-[#E53935] to-[#1A237E] border-none shadow-[0_4px_15px_rgba(229,57,53,0.3)] hover:opacity-90"
           >
-            <PlusOutlined />
             Add Branch
-          </button>
-        </div>
-
-        {/* Report Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {reports.map((report, index) => (
-            <div
-              key={index}
-              className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-lg transition-shadow"
+          </Button>
+          {lowStockItems.length > 0 && (
+            <Tag 
+              color="red" 
+              className="cursor-pointer px-3 py-1 rounded-full"
+              onClick={() => setShowLowStockModal(true)}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">{report.title}</p>
-                  {loading ? (
-                    <div className="mt-2">
-                      <div className="animate-pulse h-8 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  ) : (
-                    <p className={`text-2xl font-bold text-${report.color}-600 mt-2`}>
-                      {report.value}
-                    </p>
-                  )}
-                </div>
-                <div className={`bg-${report.color}-100 rounded-full p-3`}>
-                  {report.icon}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              <WarningOutlined className="mr-1" />
+              {lowStockItems.length} low stock items
+            </Tag>
+          )}
+        </Space>
+      </Card>
 
-        {/* Branch Locations Section */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-800">Branch Locations</h2>
-              <p className="text-sm text-gray-500 mt-1">Manage and monitor each branch's performance</p>
-            </div>
-            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800">
-              Total: {branches.length} branches
-            </span>
+      {/* Branches Section - FoodMeal Style */}
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-[#1A237E]">
+              <ShopOutlined className="mr-2 text-[#E53935]" />
+              Branches
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">Manage and monitor each branch's performance</p>
+          </div>
+          <Tag className="text-sm px-3 py-1 rounded-full bg-gradient-to-br from-[#E53935] to-[#1A237E] text-white border-none">
+            Total: {branches.length} branches
+          </Tag>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#E53935] mx-auto"></div>
+            <p className="text-gray-500 mt-4">Loading branches...</p>
           </div>
         </div>
-
-        {/* Branches Grid */}
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-500 mt-4">Loading branches...</p>
-            </div>
-          </div>
-        ) : branches.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-            <ShopOutlined className="text-6xl text-gray-300 mb-4" />
-            <p className="text-gray-500 text-lg mb-2">No branches yet</p>
-            <p className="text-gray-400">Click the "Add Branch" button to get started</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {branches.map((branch) => (
-              <div
-                key={branch.id}
-                className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
-              >
-                {/* Branch Header */}
-                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-6">
-                  <div className="flex justify-center">
-                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+      ) : branches.length === 0 ? (
+        <Card className="text-center py-12 rounded-xl border border-[#E3F2FD]">
+          <ShopOutlined className="text-6xl text-gray-300 mb-4" />
+          <p className="text-gray-500 text-lg mb-2">No branches yet</p>
+          <p className="text-gray-400">Click the "Add Branch" button to get started</p>
+        </Card>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {branches.map((branch) => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={branch.id}>
+              <Card
+                hoverable
+                className="h-full rounded-xl border border-[#E3F2FD] shadow-sm hover:shadow-[0_8px_25px_rgba(229,57,53,0.15)] transition-all duration-300"
+                cover={
+                  <div className="px-4 pt-6 pb-4 text-center bg-gradient-to-br from-[#E53935] to-[#1A237E]">
+                    <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto border-2 border-white/30">
                       <ShopOutlined className="text-3xl text-white" />
                     </div>
                   </div>
+                }
+              >
+                <div className="text-center mb-4">
+                  <h3 className="font-bold text-lg text-[#1A237E]">{branch.name}</h3>
+                  {branch.code && (
+                    <Tag className="mt-1 text-xs bg-[#E3F2FD] text-[#1A237E] border-none">
+                      #{branch.code}
+                    </Tag>
+                  )}
+                  {branch.address && <p className="text-gray-500 text-sm mt-1">{branch.address}</p>}
                 </div>
-
-                {/* Branch Body */}
-                <div className="p-4">
-                  <h3 className="font-bold text-lg text-gray-800 text-center mb-3">
-                    {branch.name}
-                  </h3>
-
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 flex items-center gap-2">
-                        <StockOutlined className="text-gray-400" />
-                        Stock
-                      </span>
-                      <span className="font-semibold text-gray-800">
-                        {getBranchProductsCount(branch.id)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 flex items-center gap-2">
-                        <TeamOutlined className="text-gray-400" />
-                        Staff
-                      </span>
-                      <span className="font-semibold text-gray-800">
-                        {getBranchStaffCount(branch.id)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 flex items-center gap-2">
-                        <ProductOutlined className="text-gray-400" />
-                        Products
-                      </span>
-                      <span className="font-semibold text-gray-800">
-                        {getBranchProductCount(branch.id)}
-                      </span>
-                    </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm p-2 rounded-lg bg-[#E3F2FD]/30">
+                    <span className="text-gray-500"><StockOutlined className="mr-1" /> Stock</span>
+                    <Badge 
+                      count={getBranchProductsCount(branch.id)} 
+                      className="bg-gradient-to-br from-[#E53935] to-[#1A237E]"
+                    />
                   </div>
-
-                  {/* Removed View Sales Report Button */}
+                  <div className="flex items-center justify-between text-sm p-2 rounded-lg bg-[#FFEBEE]/30">
+                    <span className="text-gray-500"><TeamOutlined className="mr-1" /> Staff</span>
+                    <Badge 
+                      count={getBranchStaffCount(branch.id)} 
+                      className="bg-[#1A237E]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-sm p-2 rounded-lg bg-[#E3F2FD]/20">
+                    <span className="text-gray-500"><ProductOutlined className="mr-1" /> Products</span>
+                    <Badge 
+                      count={getBranchProductCount(branch.id)} 
+                      className="bg-[#1565C0]"
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      )}
 
-        {/* Footer */}
-        <div className="mt-8 text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
-          <p>Generated on {currentTime.toLocaleString()} | New Moon Lechon Manok and Liempo Dashboard</p>
-        </div>
-      </div>
-
-      {/* Add Branch Modal - Tailwind Version */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 backdrop-blur-sm animate-fadeIn"
-            onClick={handleClose}
-          />
-          
-          {/* Modal */}
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4 animate-fadeInScale">
-            {/* Close button with rotate animation */}
-            <button
-              onClick={handleClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform"
+      {/* Low Stock Alert Modal - FoodMeal Style */}
+      <Modal
+        title={
+          <span className="text-[#E53935]">
+            <WarningOutlined className="mr-2" />
+            Low Stock Alert
+          </span>
+        }
+        open={showLowStockModal}
+        onCancel={() => setShowLowStockModal(false)}
+        footer={
+          <Space>
+            <Button onClick={() => {
+              setDismissedLowStock(true);
+              sessionStorage.setItem('dismissed_low_stock', 'true');
+              setShowLowStockModal(false);
+            }}>
+              Dismiss
+            </Button>
+            <Button 
+              type="primary" 
+              danger 
+              onClick={() => {
+                setShowLowStockModal(false);
+                navigate('/inventory');
+              }}
+              className="bg-[#E53935] border-[#E53935] rounded-lg"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            
-            {/* Header */}
-            <div className="p-6 pr-12">
-              <div className="flex items-center gap-2">
-                <PlusOutlined className="text-green-600 text-xl" />
-                <span className="text-xl font-semibold text-gray-900">Add New Branch</span>
-              </div>
-            </div>
-            
-            {/* Body */}
-            <div className="px-6 pb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Branch Name
-              </label>
-              <input
-                type="text"
-                placeholder="Enter branch name (e.g., 'Downtown Branch')"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                autoFocus
-              />
-              
-              <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
-                Branch Code
-              </label>
-              <input
-                type="text"
-                placeholder="Enter branch code (e.g., MAIN)"
-                value={formCode}
-                onChange={(e) => setFormCode(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-              />
+              View All
+            </Button>
+          </Space>
+        }
+        width={600}
+        className="rounded-2xl"
+      >
+        <p className="text-gray-500 mb-4">
+          {lowStockItems.length} product{lowStockItems.length > 1 ? 's are' : ' is'} running low on stock
+        </p>
+        <div className="max-h-[300px] overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 text-gray-500 font-medium">Product</th>
+                <th className="text-left py-2 text-gray-500 font-medium">Branch</th>
+                <th className="text-right py-2 text-gray-500 font-medium">Qty</th>
+                <th className="text-right py-2 text-gray-500 font-medium">Min</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lowStockItems.map((item, i) => (
+                <tr key={i} className="border-b border-gray-100">
+                  <td className="py-2 text-gray-800">
+                    <div className="flex items-center gap-2">
+                      <ShoppingCartOutlined className="text-gray-400" />
+                      <span className="truncate max-w-[160px]">{item.product_name}</span>
+                    </div>
+                  </td>
+                  <td className="py-2 text-gray-600">{item.branch_name}</td>
+                  <td className="py-2 text-right font-semibold text-[#E53935]">{item.quantity}</td>
+                  <td className="py-2 text-right text-gray-500">{item.minimum_stock}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
-              <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
-                Branch Address
-              </label>
-              <textarea
-                placeholder="Enter branch address (e.g., 123 Main St, City)"
-                value={formAddress}
-                onChange={(e) => setFormAddress(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200 resize-none"
-              />
-
-              <p className="text-xs text-gray-500 mt-3">
-                This information will be visible to all staff members and customers
-              </p>
-            </div>
-            
-            {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-              <button
-                onClick={handleClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-all duration-200"
+      {/* Add Branch Modal - FoodMeal Style */}
+      <Modal
+        title={
+          <span>
+            <PlusOutlined className="mr-2 text-[#E53935]" />
+            <span className="text-[#1A237E] font-bold">Add New Branch</span>
+          </span>
+        }
+        open={isModalOpen}
+        onCancel={() => { setIsModalOpen(false); addBranchForm.resetFields(); }}
+        footer={null}
+        destroyOnHidden
+        className="rounded-2xl"
+      >
+        <Form form={addBranchForm} layout="vertical" onFinish={handleAddBranch}>
+          <Form.Item 
+            label={<span className="text-[#1A237E] font-medium">Branch Name</span>}
+            name="name" 
+            rules={[{ required: true, message: "Branch name is required" }]}
+          >
+            <Input 
+              placeholder="Enter branch name (e.g., 'Downtown Branch')" 
+              className="rounded-xl border-[#E3F2FD] focus:border-[#E53935]"
+            />
+          </Form.Item>
+          <Form.Item 
+            label={<span className="text-[#1A237E] font-medium">Branch Code</span>}
+            name="code" 
+            rules={[{ required: true, message: "Branch code is required" }]}
+          >
+            <Input 
+              placeholder="Enter branch code (e.g., MAIN)" 
+              className="rounded-xl border-[#E3F2FD] focus:border-[#E53935]"
+            />
+          </Form.Item>
+          <Form.Item 
+            label={<span className="text-[#1A237E] font-medium">Branch Address</span>}
+            name="address" 
+            rules={[{ required: true, message: "Branch address is required" }]}
+          >
+            <Input.TextArea 
+              placeholder="Enter branch address (e.g., 123 Main St, City)" 
+              rows={2}
+              className="rounded-xl border-[#E3F2FD] focus:border-[#E53935]"
+            />
+          </Form.Item>
+          <div className="p-3 mb-4 rounded-xl bg-[#E3F2FD]">
+            <p className="text-xs text-[#1A237E] mb-0">
+              <InfoCircleOutlined className="mr-1" />
+              This information will be visible to all staff members and customers
+            </p>
+          </div>
+          <Form.Item className="mb-0">
+            <Space className="w-full justify-end">
+              <Button 
+                onClick={() => { setIsModalOpen(false); addBranchForm.resetFields(); }}
+                className="rounded-xl"
               >
                 Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-all duration-200 transform hover:scale-105 active:scale-95"
+              </Button>
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                className="rounded-xl bg-gradient-to-br from-[#E53935] to-[#1A237E] border-none shadow-[0_4px_15px_rgba(229,57,53,0.3)] hover:opacity-90"
               >
                 Create Branch
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

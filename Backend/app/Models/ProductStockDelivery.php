@@ -16,6 +16,8 @@ class ProductStockDelivery extends Model
         'restocked_at',
         'received_at',
         'received_by',
+        'marked_as_not_received',
+        'not_received_at',
     ];
 
     protected $casts = [
@@ -23,6 +25,8 @@ class ProductStockDelivery extends Model
         // conversion to UTC on serialize, shifting the displayed clock.
         'restocked_at' => 'string',
         'received_at' => 'string',
+        'marked_as_not_received' => 'boolean',
+        'not_received_at' => 'string',
     ];
 
     public function product()

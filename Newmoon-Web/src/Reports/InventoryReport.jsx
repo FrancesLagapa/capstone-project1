@@ -39,6 +39,7 @@ const InventoryReport = () => {
   const [categories, setCategories] = useState([]);
   const [branches, setBranches] = useState([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 15, total: 0 });
+  const [summary, setSummary] = useState({ total_items: 0, total_value: 0, low_stock_items: 0, out_of_stock_items: 0, total_products: 0 });
 
   const fetchInventoryReport = async (page = 1) => {
     setLoading(true);
@@ -58,7 +59,9 @@ const InventoryReport = () => {
       
       setBranches(Array.isArray(branchesRes.data) ? branchesRes.data : (branchesRes.data?.data || []));
       setInventoryData(inventory.data || []);
+      setMovements(inventory.movements || []);
       setLowStockItems(inventory.data?.filter(item => item.is_low_stock) || []);
+      setSummary(inventory.summary || {});
       if (inventory.pagination) {
         setPagination({
           current: inventory.pagination.current_page,
@@ -121,12 +124,7 @@ const InventoryReport = () => {
         </div>
       ),
     },
-    {
-      title: "Category",
-      dataIndex: "category_name",
-      key: "category_name",
-      render: (category) => <Tag color="blue">{category}</Tag>,
-    },
+
     {
       title: "Branch",
       dataIndex: "branch_name",
@@ -251,14 +249,11 @@ const InventoryReport = () => {
     },
   ];
 
-  // Stats
-  const totalItems = inventoryData.length;
-  const totalValue = inventoryData.reduce((sum, item) => {
-    const val = Number(item.total_value);
-    return sum + (Number.isNaN(val) ? 0 : val);
-  }, 0);
-  const lowStockCount = lowStockItems.length;
-  const outOfStockCount = inventoryData.filter((i) => i.current_stock === 0).length;
+  // Stats — from backend summary (all items, not just current page)
+  const totalItems = summary.total_products || 0;
+  const totalValue = summary.total_value || 0;
+  const lowStockCount = summary.low_stock_items || 0;
+  const outOfStockCount = summary.out_of_stock_items || 0;
 
   return (
     <div className="p-4 bg-gray-50 min-h-screen">

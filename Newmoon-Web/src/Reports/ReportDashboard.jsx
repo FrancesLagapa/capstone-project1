@@ -152,7 +152,7 @@ const ReportDashboard = () => {
                   title="Total Revenue"
                   value={dashboardData.total_revenue}
                   prefix={<DollarOutlined />}
-                  valueStyle={{ color: "#52c41a" }}
+                  styles={{ content: { color: "#52c41a" } }}
                   formatter={(value) => `₱${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                 />
               </Card>
@@ -163,7 +163,7 @@ const ReportDashboard = () => {
                   title="Total Transactions"
                   value={dashboardData.total_transactions}
                   prefix={<BarChartOutlined />}
-                  valueStyle={{ color: "#1890ff" }}
+                  styles={{ content: { color: "#1890ff" } }}
                 />
               </Card>
             </Col>
@@ -173,7 +173,7 @@ const ReportDashboard = () => {
                   title="Low Stock Items"
                   value={dashboardData.low_stock_count}
                   prefix={<WarningOutlined />}
-                  valueStyle={{ color: dashboardData.low_stock_count > 0 ? "#ff4d4f" : "#52c41a" }}
+                  styles={{ content: { color: dashboardData.low_stock_count > 0 ? "#ff4d4f" : "#52c41a" } }}
                 />
               </Card>
             </Col>
@@ -183,7 +183,7 @@ const ReportDashboard = () => {
                   title="Attendance Rate"
                   value={dashboardData.attendance_rate}
                   prefix={<CalendarOutlined />}
-                  valueStyle={{ color: dashboardData.attendance_rate >= 90 ? "#52c41a" : "#faad14" }}
+                  styles={{ content: { color: dashboardData.attendance_rate >= 90 ? "#52c41a" : "#faad14" } }}
                   suffix="%"
                 />
               </Card>

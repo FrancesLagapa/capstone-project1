@@ -9,6 +9,8 @@ class SalaryAdvance extends Model
 {
     use HasFactory;
 
+    protected $table = 'cash_advances';
+
     protected $fillable = [
         'user_id',
         'amount',

@@ -63,6 +63,11 @@ class User extends Authenticatable
         return $this->hasOne(UserFaceTemplate::class)->where('is_active', true);
     }
 
+    public function addresses()
+    {
+        return $this->hasMany(Address::class);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | ACCESSORS

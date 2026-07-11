@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { Tag, Progress, DatePicker as AntDatePicker, Button, Pagination } from "antd";
 import { 
   CalendarOutlined, 
@@ -365,7 +365,7 @@ function EmployeeTracker() {
     : 0;
 
   const formatCurrency = (amount) => {
-    return `₱${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    return `Γé▒${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   };
 
   const getStatusTag = (status) => {
@@ -600,7 +600,7 @@ function EmployeeTracker() {
               <div className="flex items-center gap-3">
                 <ReloadOutlined className="animate-spin" />
                 <div className="text-sm">
-                  <div className="font-semibold">Fetching latest data from backend…</div>
+                  <div className="font-semibold">Fetching latest data from backendΓÇª</div>
                   <div className="text-blue-700/80">Date: {selectedDate}</div>
                 </div>
               </div>

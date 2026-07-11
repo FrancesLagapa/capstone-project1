@@ -14,8 +14,15 @@ import BranchAssignments from "./Admin/BranchAssignments.jsx";
 import EmployeeTracker from "./Admin/EmployeeTracker.jsx";
 import BranchMap from "./Admin/BranchMap.jsx";
 import RequestAdmin from "./Admin/RequestAdmin.jsx";
+import CashAdvance from "./Admin/CashAdvance.jsx";
+import SupplyRequest from "./Admin/SupplyRequest.jsx";
+import StaffPerformance from "./Admin/StaffPerformance.jsx";
+import BackToSale from "./Admin/BackToSale.jsx";
 import PullOutAdmin from "./Admin/PullOutAdmin.jsx";
 import Payroll from "./Admin/Payroll.jsx";
+import Customers from "./Admin/Customers.jsx";
+import Reservations from "./Admin/Reservations.jsx";
+import SalesRecord from "./Admin/SalesRecord.jsx";
 
 // Reports
 import SalesReport from "./Reports/SalesReport.jsx";
@@ -24,6 +31,8 @@ import AttendanceReport from "./Reports/AttendanceReport.jsx";
 import PayrollReport from "./Reports/PayrollReport.jsx";
 import BranchReport from "./Reports/BranchReport.jsx";
 import PullOutReport from "./Reports/PullOutReport.jsx";
+import DeliveryReport from "./Reports/DeliveryReport.jsx";
+import ReportGeneration from "./Reports/ReportGeneration.jsx";
 
 // Auth
 import ProtectedRoute from "./ProtectedRoute.jsx";
@@ -94,6 +103,51 @@ function App() {
       />
 
       <Route
+        path="/sales"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <SalesRecord />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/customers"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <Customers />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/reservations"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <Reservations />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
         path="/inventory"
         element={
           <ProtectedRoute>
@@ -101,6 +155,51 @@ function App() {
               <ProductList />
             </Layout>
           </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/cash-advance"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <CashAdvance />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/supply-requests"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <SupplyRequest />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/staff-performance"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <StaffPerformance />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
         }
       />
 
@@ -114,18 +213,7 @@ function App() {
           </ProtectedRoute>
         }
       />
-
-      <Route
-        path="/staff-monitoring"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <EmployeeTracker />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
+      
       {/* Branch Assignments - corrected path */}
       <Route
         path="/branch-assign"
@@ -174,7 +262,37 @@ function App() {
         }
       />
 
+      <Route
+        path="/back-to-sales"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <BackToSale />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
       {/* Reports Routes */}
+      <Route
+        path="/reports"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <ReportGeneration />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
       <Route
         path="/reports/sales"
         element={
@@ -272,6 +390,21 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <EmployeeTracker />
+              </Layout>
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/dashboard" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/delivery"
+        element={
+          localStorage.getItem("role") === "admin" ? (
+            <ProtectedRoute>
+              <Layout>
+                <DeliveryReport />
               </Layout>
             </ProtectedRoute>
           ) : (

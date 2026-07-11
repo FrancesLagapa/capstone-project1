@@ -32,7 +32,7 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-const FaceDetectionWebView = forwardRef<FaceDetectionWebViewHandle>(function FaceDetectionWebView(
+const FaceDetectionWebView = React.memo(forwardRef<FaceDetectionWebViewHandle>(function FaceDetectionWebView(
   _props,
   ref
 ) {
@@ -143,7 +143,7 @@ const FaceDetectionWebView = forwardRef<FaceDetectionWebViewHandle>(function Fac
       />
     </View>
   );
-});
+}));
 
 const styles = StyleSheet.create({
   host: {

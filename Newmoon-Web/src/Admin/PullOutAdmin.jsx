@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Button, Modal, Form, Input, message, Tag, Row, Col, Statistic, Space, Select, Tooltip } from "antd";
+import { Card, Table, Button, Modal, Form, Input, message, Tag, Space, Select, Tooltip } from "antd";
 import { 
   ReloadOutlined,
   CheckCircleOutlined,
@@ -7,16 +7,19 @@ import {
   CloseCircleOutlined,
   CheckOutlined,
   CloseOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  InboxOutlined,
+  InfoCircleOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from "../config/api";
-const { Option } = Select;
 
 const { TextArea } = Input;
 
 function PullOutAdmin() {
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedPullOut, setSelectedPullOut] = useState(null);
@@ -24,18 +27,19 @@ function PullOutAdmin() {
   const [rejectForm] = Form.useForm();
   const queryClient = useQueryClient();
 
-  // Fetch all pull-outs
+  // Fetch all pull-outs with server-side pagination + status filter
   const { data: pullOutsData, isLoading: pullOutsLoading, refetch: refetchPullOuts } = useQuery({
-    queryKey: ['pullOutsAll'],
-    queryFn: () => api.get("/pull-outs/getall"),
+    queryKey: ['pullOutsAll', currentPage, pageSize, statusFilter],
+    queryFn: () => {
+      const params = { page: currentPage, per_page: pageSize };
+      if (statusFilter !== "all") params.status = statusFilter;
+      return api.get("/pull-outs/getall", { params });
+    },
   });
 
   const pullOuts = pullOutsData?.data?.data || [];
-
-  // Filter pull-outs based on status
-  const filteredPullOuts = statusFilter === "all" 
-    ? pullOuts
-    : pullOuts.filter((p) => p.status === statusFilter);
+  const stats = pullOutsData?.data?.stats || {};
+  const paginationMeta = pullOutsData?.data?.pagination || {};
 
   // Approve mutation
   const approveMutation = useMutation({
@@ -226,77 +230,66 @@ function PullOutAdmin() {
     },
   ];
 
-  // Statistics
-  const statistics = {
-    total: pullOuts.length,
-    pending: pullOuts.filter((p) => p.status === "pending").length,
-    approved: pullOuts.filter((p) => p.status === "approved").length,
-    rejected: pullOuts.filter((p) => p.status === "rejected").length,
-    totalQuantity: pullOuts
-      .filter((p) => p.status === "approved")
-      .reduce((sum, p) => sum + Number(p.quantity), 0),
-  };
+  // Statistics from server (unpaginated, full dataset)
 
   const handleRefresh = () => {
     refetchPullOuts();
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Pull-Out Management</h1>
-        <p className="text-gray-600">Approve or reject product pull-out requests</p>
+    <div className="p-6 bg-gradient-to-br from-[#E3F2FD]/30 via-white to-[#FFEBEE]/30 min-h-screen">
+      {/* Header - FoodMeal Style */}
+      <div className="mb-6 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(229,57,53,0.2)] bg-gradient-to-br from-[#E53935] to-[#1A237E]">
+        <div className="px-8 py-6 relative">
+          {/* Decorative circles */}
+          <div className="absolute right-0 top-0 opacity-10">
+            <div className="w-64 h-64 rounded-full bg-white -mr-32 -mt-32"></div>
+          </div>
+          <div className="absolute bottom-0 left-1/3 opacity-5">
+            <div className="w-48 h-48 rounded-full bg-white"></div>
+          </div>
+
+          <div className="flex items-center justify-between relative z-10">
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                <InboxOutlined className="mr-2" />
+                Pull-Out Management
+              </h1>
+              <p className="text-white/80 text-sm">Approve or reject product pull-out requests</p>
+            </div>
+          </div>
+
+          {/* Quick Stats in Header */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 relative z-10">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Pull-Outs</p>
+              <p className="text-white font-bold text-xl">{stats.total || 0}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Pending</p>
+              <p className="text-white font-bold text-xl">{stats.pending || 0}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Approved</p>
+              <p className="text-white font-bold text-xl">{stats.approved || 0}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
+              <p className="text-white/70 text-xs">Total Quantity</p>
+              <p className="text-white font-bold text-xl">{stats.total_quantity || 0}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Statistics Cards */}
-      <Row gutter={16} className="mb-6">
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Total Pull-Outs"
-              value={statistics.total}
-              styles={{ content: { color: "#1890ff" } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Pending"
-              value={statistics.pending}
-              styles={{ content: { color: "#faad14" } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Approved"
-              value={statistics.approved}
-              styles={{ content: { color: "#3f8600" } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Total Quantity"
-              value={statistics.totalQuantity}
-              precision={2}
-              styles={{ content: { color: "#3f8600" } }}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Filter Bar */}
-      <Card className="mb-6">
+      {/* Action Buttons - FoodMeal Style */}
+      <Card className="mb-6 rounded-xl border border-[#E3F2FD] shadow-sm">
         <Space>
-          <span className="text-gray-600">Filter by status:</span>
+          <span className="text-[#1A237E] font-medium text-sm">Filter by status:</span>
           <Select
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}
             style={{ width: 150 }}
+            className="rounded-xl"
           >
             <Select.Option value="all">All</Select.Option>
             <Select.Option value="pending">Pending</Select.Option>
@@ -307,41 +300,63 @@ function PullOutAdmin() {
             icon={<ReloadOutlined />}
             onClick={handleRefresh}
             loading={pullOutsLoading}
+            className="rounded-xl border-[#1A237E] text-[#1A237E] hover:bg-[#E3F2FD]"
           >
             Refresh
           </Button>
         </Space>
       </Card>
 
-      {/* Pull-Outs Table */}
-      <Card
-        title="All Pull-Outs"
-        extra={<span className="text-gray-500">{filteredPullOuts.length} pull-out(s)</span>}
-      >
+      {/* Requests Section - FoodMeal Style */}
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-[#1A237E]">
+              <InboxOutlined className="mr-2 text-[#E53935]" />
+              All Pull-Outs
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">Review and process staff pull-out requests</p>
+          </div>
+          <Tag className="text-sm px-3 py-1 rounded-full bg-gradient-to-br from-[#E53935] to-[#1A237E] text-white border-none">
+            {paginationMeta.total || pullOuts.length} pull-out(s)
+          </Tag>
+        </div>
+      </div>
+
+      <Card className="rounded-xl border border-[#E3F2FD] shadow-sm">
         <Table
           columns={columns}
-          dataSource={filteredPullOuts}
+          dataSource={pullOuts}
           rowKey="id"
           loading={pullOutsLoading}
           pagination={{
-            pageSize: 10,
+            current: paginationMeta.current_page || 1,
+            pageSize: pageSize,
+            total: paginationMeta.total || 0,
+            onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },
             showSizeChanger: true,
             showTotal: (total) => `Total ${total} pull-outs`,
           }}
           locale={{
             emptyText: (
               <div className="py-8 text-center">
-                <DeleteOutlined className="text-4xl text-gray-300 mb-2" />
+                <InboxOutlined className="text-4xl text-gray-300 mb-2" />
                 <p className="text-gray-500">No pull-outs found</p>
+                <p className="text-gray-400 text-sm">Try adjusting your filter</p>
               </div>
             ),
           }}
         />
       </Card>
 
-      {/* Approve Modal */}
+      {/* Approve Modal - FoodMeal Style */}
       <Modal
-        title="Approve Pull-Out"
+        title={
+          <span>
+            <CheckOutlined className="mr-2 text-[#3f8600]" />
+            <span className="text-[#1A237E] font-bold">Approve Pull-Out</span>
+          </span>
+        }
         open={showApproveModal}
         onCancel={() => {
           setShowApproveModal(false);
@@ -350,13 +365,14 @@ function PullOutAdmin() {
         }}
         footer={null}
         destroyOnHidden
+        className="rounded-2xl"
       >
         {selectedPullOut && (
-          <div className="mb-4 p-4 rounded-lg bg-green-50">
-            <div className="font-semibold">
+          <div className="mb-4 p-4 rounded-xl bg-[#E3F2FD]">
+            <div className="font-semibold text-[#1A237E]">
               {selectedPullOut.user?.firstname} {selectedPullOut.user?.lastname}
             </div>
-            <div className="text-lg font-bold text-green-600">
+            <div className="text-lg font-bold text-[#3f8600]">
               {selectedPullOut.product?.name}
             </div>
             <div className="text-gray-600 text-sm">
@@ -379,7 +395,7 @@ function PullOutAdmin() {
           initialValues={{ admin_notes: "" }}
         >
           <Form.Item
-            label="Admin Notes (Optional)"
+            label={<span className="text-[#1A237E] font-medium">Admin Notes (Optional)</span>}
             name="admin_notes"
             rules={[
               { max: 500, message: "Notes cannot exceed 500 characters" },
@@ -391,9 +407,15 @@ function PullOutAdmin() {
               maxLength={500}
               showCount
               disabled={approveMutation.isPending}
+              className="rounded-xl border-[#E3F2FD] focus:border-[#E53935]"
             />
           </Form.Item>
-
+          <div className="p-3 mb-4 rounded-xl bg-[#E3F2FD]">
+            <p className="text-xs text-[#1A237E] mb-0">
+              <InfoCircleOutlined className="mr-1" />
+              This action will approve the pull-out request and notify the staff member.
+            </p>
+          </div>
           <Form.Item className="mb-0">
             <Space className="w-full justify-end">
               <Button
@@ -403,6 +425,7 @@ function PullOutAdmin() {
                   setSelectedPullOut(null);
                 }}
                 disabled={approveMutation.isPending}
+                className="rounded-xl"
               >
                 Cancel
               </Button>
@@ -411,6 +434,7 @@ function PullOutAdmin() {
                 htmlType="submit"
                 loading={approveMutation.isPending}
                 icon={<CheckOutlined />}
+                className="rounded-xl bg-gradient-to-br from-[#3f8600] to-[#1A237E] border-none shadow-[0_4px_15px_rgba(63,134,0,0.3)] hover:opacity-90"
               >
                 Approve Pull-Out
               </Button>
@@ -419,9 +443,14 @@ function PullOutAdmin() {
         </Form>
       </Modal>
 
-      {/* Reject Modal */}
+      {/* Reject Modal - FoodMeal Style */}
       <Modal
-        title="Reject Pull-Out"
+        title={
+          <span>
+            <CloseOutlined className="mr-2 text-[#E53935]" />
+            <span className="text-[#1A237E] font-bold">Reject Pull-Out</span>
+          </span>
+        }
         open={showRejectModal}
         onCancel={() => {
           setShowRejectModal(false);
@@ -430,13 +459,14 @@ function PullOutAdmin() {
         }}
         footer={null}
         destroyOnHidden
+        className="rounded-2xl"
       >
         {selectedPullOut && (
-          <div className="mb-4 p-4 bg-red-50 rounded-lg">
-            <div className="font-semibold">
+          <div className="mb-4 p-4 rounded-xl bg-[#FFEBEE]">
+            <div className="font-semibold text-[#1A237E]">
               {selectedPullOut.user?.firstname} {selectedPullOut.user?.lastname}
             </div>
-            <div className="text-lg font-bold text-red-600">
+            <div className="text-lg font-bold text-[#E53935]">
               {selectedPullOut.product?.name}
             </div>
             <div className="text-gray-600 text-sm">
@@ -459,7 +489,7 @@ function PullOutAdmin() {
           initialValues={{ admin_notes: "" }}
         >
           <Form.Item
-            label="Rejection Reason (Optional)"
+            label={<span className="text-[#1A237E] font-medium">Rejection Reason (Optional)</span>}
             name="admin_notes"
             rules={[
               { max: 500, message: "Reason cannot exceed 500 characters" },
@@ -471,9 +501,15 @@ function PullOutAdmin() {
               maxLength={500}
               showCount
               disabled={rejectMutation.isPending}
+              className="rounded-xl border-[#E3F2FD] focus:border-[#E53935]"
             />
           </Form.Item>
-
+          <div className="p-3 mb-4 rounded-xl bg-[#FFEBEE]">
+            <p className="text-xs text-[#E53935] mb-0">
+              <InfoCircleOutlined className="mr-1" />
+              This action will reject the pull-out request and notify the staff member.
+            </p>
+          </div>
           <Form.Item className="mb-0">
             <Space className="w-full justify-end">
               <Button
@@ -483,6 +519,7 @@ function PullOutAdmin() {
                   setSelectedPullOut(null);
                 }}
                 disabled={rejectMutation.isPending}
+                className="rounded-xl"
               >
                 Cancel
               </Button>
@@ -491,6 +528,7 @@ function PullOutAdmin() {
                 htmlType="submit"
                 loading={rejectMutation.isPending}
                 icon={<CloseOutlined />}
+                className="rounded-xl"
               >
                 Reject Pull-Out
               </Button>

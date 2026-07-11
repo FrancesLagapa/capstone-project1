@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
 use App\Models\Product;
 use App\Models\ProductStock;
 use App\Models\ProductStockDelivery;
+use App\Models\StockBatch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -20,7 +22,8 @@ class ProductController extends Controller
         if (!$includeInactive) {
             $query->where('is_active', true);
         }
-        $products = $query->paginate(5);
+        $perPage = min((int) $request->get('per_page', 5), 200);
+        $products = $query->paginate($perPage);
 
         // Frontend/mobile expect `product_stocks`
         $products->getCollection()->transform(function ($p) {
@@ -43,10 +46,15 @@ class ProductController extends Controller
 
     public function store(Request $request)
     {
+        \Log::info('[ProductController.store] Request all:', $request->all());
+        \Log::info('[ProductController.store] hasFile image:', [$request->hasFile('image')]);
+        \Log::info('[ProductController.store] Content-Type:', [$request->header('Content-Type')]);
+
         $validated = $request->validate([
             'name' => 'required|string',
             'price' => 'required|numeric|min:0',
             'description' => 'nullable|string',
+            'image' => 'nullable|file|mimes:jpeg,png,jpg,webp|max:2048',
             'sku' => 'nullable|string|unique:products,sku',
             'category' => 'nullable|string',
             'branches' => 'sometimes|array',
@@ -73,10 +81,16 @@ class ProductController extends Controller
                 $sku = $candidate;
             }
 
+            $imagePath = null;
+            if ($request->hasFile('image')) {
+                $imagePath = $request->file('image')->store('products', 'public');
+            }
+
             $product = Product::create([
                 'name' => $validated['name'],
                 'price' => $validated['price'],
                 'description' => $validated['description'] ?? null,
+                'image' => $imagePath,
                 'sku' => $sku,
                 'category' => $validated['category'] ?? null,
                 'is_active' => true,
@@ -112,10 +126,19 @@ class ProductController extends Controller
             'name' => 'sometimes|string',
             'price' => 'sometimes|numeric|min:0',
             'description' => 'nullable|string',
+            'image' => 'nullable|file|mimes:jpeg,png,jpg,webp|max:2048',
             'sku' => 'nullable|string|unique:products,sku,' . $product->id,
             'category' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
         ]);
+
+        if ($request->hasFile('image')) {
+            // Delete old image if exists
+            if ($product->image) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($product->image);
+            }
+            $validated['image'] = $request->file('image')->store('products', 'public');
+        }
 
         $product->update($validated);
         $product->load(['stocks.branch', 'deliveries.branch']);
@@ -180,13 +203,41 @@ class ProductController extends Controller
         return response()->json(['pending_count' => $count]);
     }
 
-    public function getLowStock()
+    public function getLowStock(Request $request)
     {
-        $rows = ProductStock::with('product')
-            ->whereColumn('quantity', '<', 'minimum_stock')
-            ->get();
+        $query = ProductStock::with(['product', 'branch']);
 
-        return response()->json($rows);
+        if ($request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->whereHas('product', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%");
+            });
+        }
+
+        $query->whereColumn('quantity', '<', 'minimum_stock')
+              ->where('minimum_stock', '>', 0)
+              ->orderByRaw('(quantity / minimum_stock) ASC');
+
+        $rows = $request->has('per_page')
+            ? $query->paginate($request->per_page)
+            : $query->get();
+
+        $stats = [
+            'total_low_stock' => ProductStock::whereColumn('quantity', '<', 'minimum_stock')
+                ->where('minimum_stock', '>', 0)
+                ->count(),
+            'total_out_of_stock' => ProductStock::where('quantity', '<=', 0)->count(),
+            'total_products' => ProductStock::where('quantity', '>', 0)->count(),
+        ];
+
+        return response()->json([
+            'data' => $rows,
+            'stats' => $stats,
+        ]);
     }
 
     public function toggleReceived(Request $request, $id)
@@ -221,12 +272,32 @@ class ProductController extends Controller
             $stock->restocked_at = $now;
             $stock->save();
 
+            // Create a StockBatch per delivery (FIFO)
+            $deliveries = ProductStockDelivery::where('product_id', (int) $id)
+                ->where('branch_id', $validated['branch_id'])
+                ->whereNull('received_at')
+                ->get();
+
+            foreach ($deliveries as $delivery) {
+                StockBatch::create([
+                    'product_id'  => (int) $id,
+                    'branch_id'   => $validated['branch_id'],
+                    'quantity'    => $delivery->quantity,
+                    'remaining'   => $delivery->quantity,
+                    'received_at' => $now,
+                    'source_type' => 'delivery',
+                    'source_id'   => $delivery->id,
+                ]);
+            }
+
             ProductStockDelivery::where('product_id', (int) $id)
                 ->where('branch_id', $validated['branch_id'])
                 ->whereNull('received_at')
                 ->update([
                     'received_at' => $now,
                     'received_by' => $receiverId,
+                    'marked_as_not_received' => false,
+                    'not_received_at' => null,
                 ]);
 
             DB::commit();
@@ -240,6 +311,79 @@ class ProductController extends Controller
             'received_count' => $pending->count(),
             'received_quantity' => $totalQty,
         ]);
+    }
+
+    public function markNotReceived(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'branch_id' => 'required|exists:branches,id',
+        ]);
+
+        $pending = ProductStockDelivery::where('product_id', (int) $id)
+            ->where('branch_id', $validated['branch_id'])
+            ->whereNull('received_at')
+            ->where('marked_as_not_received', false)
+            ->get();
+
+        if ($pending->isEmpty()) {
+            return response()->json(['message' => 'No pending stock to mark as not received'], 200);
+        }
+
+        $now = \Carbon\Carbon::now('Asia/Manila');
+
+        DB::beginTransaction();
+        try {
+            ProductStockDelivery::where('product_id', (int) $id)
+                ->where('branch_id', $validated['branch_id'])
+                ->whereNull('received_at')
+                ->where('marked_as_not_received', false)
+                ->update([
+                    'marked_as_not_received' => true,
+                    'not_received_at' => $now,
+                ]);
+
+            $product = Product::find((int) $id);
+            $productName = $product?->name ?? "Product #{$id}";
+
+            Notification::create([
+                'type' => 'stock_not_received',
+                'message' => "{$productName} was marked as not received by staff",
+                'data' => [
+                    'product_id' => (int) $id,
+                    'branch_id' => $validated['branch_id'],
+                    'quantity' => $pending->sum('quantity'),
+                ],
+            ]);
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to mark stock as not received', 'error' => $e->getMessage()], 500);
+        }
+
+        return response()->json([
+            'message' => 'Stock marked as not received. Admin has been notified.',
+            'not_received_count' => $pending->count(),
+            'not_received_quantity' => (int) $pending->sum('quantity'),
+        ]);
+    }
+
+    public function stockBatches(Request $request)
+    {
+        $query = StockBatch::with(['product', 'branch'])
+            ->orderBy('received_at')
+            ->orderBy('id');
+
+        if ($request->filled('product_id')) {
+            $query->where('product_id', $request->product_id);
+        }
+        if ($request->filled('branch_id') && $request->branch_id !== 'all') {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        $batches = $query->paginate($request->get('per_page', 50));
+
+        return response()->json($batches);
     }
 }
 
