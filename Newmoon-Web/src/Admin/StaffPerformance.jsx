@@ -185,11 +185,13 @@ function StaffPerformance() {
     });
   };
 
-  // Chart data
+  // Chart data — daily products
   const productTargetChart = staffDataList.map((s) => ({
     name: s.full_name?.split(" ")[0] || "Staff",
-    sold: s.quota.total_products_sold,
-    target: s.quota.target_products,
+    sold: s.quota.daily_products_sold ?? s.quota.total_products_sold,
+    target: s.quota.daily_target ?? Math.ceil(s.quota.target_products / 30),
+    soldMonthly: s.quota.total_products_sold,
+    targetMonthly: s.quota.target_products,
   }));
 
   const attendancePieData = (() => {
@@ -252,16 +254,18 @@ function StaffPerformance() {
       ),
     },
     {
-      title: "Products vs Target",
+      title: "Daily Products vs Target",
       key: "products_target",
       width: 220,
       render: (_, r) => {
-        const pct = Math.min(100, Math.round(r.quota.product_target_pct));
-        const achieved = r.quota.product_target_pct >= 100;
+        const dailySold = r.quota.daily_products_sold ?? 0;
+        const dailyTarget = r.quota.daily_target ?? 0;
+        const pct = dailyTarget > 0 ? Math.min(100, Math.round((dailySold / dailyTarget) * 100)) : 0;
+        const achieved = pct >= 100;
         return (
           <div>
             <div className="font-semibold text-[#1A237E] text-sm">
-              {r.quota.total_products_sold} / {r.quota.target_products} pcs
+              {dailySold} / {dailyTarget} pcs
             </div>
             <Progress percent={pct} size="small" strokeColor={achieved ? "#22c55e" : "#1A237E"} />
             <div className="text-xs mt-0.5">
@@ -408,9 +412,9 @@ function StaffPerformance() {
               <p className="text-white font-bold text-xl">₱{Number(meta.total_sales || 0).toLocaleString()}</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
-              <p className="text-white/70 text-xs">Target Achievement</p>
-              <p className="text-white font-bold text-xl">{meta.target_achievement_pct || 0}%</p>
-              <p className="text-white/50 text-xs">{meta.total_products_sold || 0} / {meta.total_target_products || 0} pcs</p>
+              <p className="text-white/70 text-xs">Today's Achievement</p>
+              <p className="text-white font-bold text-xl">{meta.daily_target_achievement_pct || 0}%</p>
+              <p className="text-white/50 text-xs">{meta.total_daily_products || 0} / {meta.total_daily_targets || 0} pcs today</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3">
               <p className="text-white/70 text-xs">Avg Performance</p>
@@ -458,7 +462,7 @@ function StaffPerformance() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   {[
                     { title: "Total Sales", value: `₱${Number(meta.total_sales || 0).toLocaleString()}`, icon: <ShoppingCartOutlined />, color: "#E53935" },
-                    { title: "Total Products Sold", value: `${meta.total_products_sold || 0} pcs`, icon: <GiftOutlined />, color: "#1A237E" },
+                    { title: "Today's Products Sold", value: `${meta.total_daily_products || 0} pcs`, icon: <GiftOutlined />, color: "#1A237E" },
                     { title: "Avg Attendance", value: `${Math.round(meta.avg_attendance_rate || 0)}%`, icon: <CheckCircleOutlined />, color: "#22c55e" },
                     { title: "Total Incentives", value: `₱${Number(meta.total_incentives || 0).toLocaleString()}`, icon: <TrophyOutlined />, color: "#f59e0b" },
                   ].map(({ title, value, icon, color }) => (
@@ -481,7 +485,7 @@ function StaffPerformance() {
                   {/* Products vs Target Bar Chart */}
                   <Card className="lg:col-span-2 rounded-xl border border-[#E3F2FD] shadow-sm" styles={{ body: { padding: 20 } }}>
                     <h3 className="font-semibold text-[#1A237E] mb-4">
-                      <BarChartOutlined className="mr-2" />Products vs Target by Staff
+                      <BarChartOutlined className="mr-2" />Daily Products vs Target by Staff
                     </h3>
                     {productTargetChart.length > 0 ? (
                       <MuiBarChart

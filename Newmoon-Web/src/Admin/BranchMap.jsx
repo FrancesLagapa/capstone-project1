@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, Table, Tag, Button, Modal, Form, Input, Space, message, Tooltip } from "antd";
 import {
   EnvironmentOutlined,
@@ -77,6 +77,16 @@ function MapInitializer() {
   return null;
 }
 
+function MapFlyTo({ branch }) {
+  const map = useMap();
+  useEffect(() => {
+    if (branch && branch.latitude && branch.longitude) {
+      map.flyTo([branch.latitude, branch.longitude], 16, { duration: 1 });
+    }
+  }, [branch, map]);
+  return null;
+}
+
 function BranchMap() {
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +96,8 @@ function BranchMap() {
   const [editingBranch, setEditingBranch] = useState(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [editFormInstance] = Form.useForm();
+  const [flyTarget, setFlyTarget] = useState(null);
+  const tableRef = useRef(null);
 
   const loadBranches = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -120,6 +132,24 @@ function BranchMap() {
 
   const branchesWithLocation = useMemo(() => filteredBranches.filter(b => b.latitude && b.longitude), [filteredBranches]);
   const branchesWithoutLocation = useMemo(() => filteredBranches.filter(b => !b.latitude || !b.longitude), [filteredBranches]);
+
+  const handleMarkerClick = useCallback((branch) => {
+    setSelectedBranch(branch);
+    const rowEl = tableRef.current?.querySelector(`[data-row-key="${branch.id}"]`);
+    if (rowEl) {
+      rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      rowEl.style.transition = "background 0.3s";
+      rowEl.style.background = "#E3F2FD";
+      setTimeout(() => { rowEl.style.background = ""; }, 2000);
+    }
+  }, []);
+
+  const handleRowClick = useCallback((record) => {
+    setSelectedBranch(record);
+    if (record.latitude && record.longitude) {
+      setFlyTarget(record);
+    }
+  }, []);
 
   const handleOpenGoogleMaps = (branch) => {
     if (branch.latitude && branch.longitude) {
@@ -373,6 +403,7 @@ function BranchMap() {
               zoomControl={true}
             >
               <MapInitializer />
+              <MapFlyTo branch={flyTarget} />
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -384,7 +415,7 @@ function BranchMap() {
                     key={branch.id}
                     position={[branch.latitude, branch.longitude]}
                     icon={customIcon}
-                    eventHandlers={{ click: () => setSelectedBranch(branch) }}
+                    eventHandlers={{ click: () => handleMarkerClick(branch) }}
                   >
                     <Popup>
                       <div className="p-2 min-w-[200px]">
@@ -471,13 +502,20 @@ function BranchMap() {
       </div>
 
       <Card className="rounded-xl border border-[#E3F2FD] shadow-sm">
-        <Table
-          columns={columns}
-          dataSource={filteredBranches}
-          rowKey="id"
-          pagination={{ pageSize: 5, showSizeChanger: true, showTotal: (t) => `Total ${t} branches` }}
-          locale={{ emptyText: <div className="py-8 text-center"><EnvironmentOutlined className="text-4xl text-gray-300 mb-2" /><p className="text-gray-500">No branches found</p><p className="text-gray-400 text-sm">Try adjusting your search</p></div> }}
-        />
+        <div ref={tableRef}>
+          <Table
+            columns={columns}
+            dataSource={filteredBranches}
+            rowKey="id"
+            rowClassName={(record) => record.id === selectedBranch?.id ? "bg-blue-50 border-l-4 border-l-blue-500" : ""}
+            onRow={(record) => ({
+              onClick: () => handleRowClick(record),
+              style: { cursor: record.latitude && record.longitude ? "pointer" : "default" },
+            })}
+            pagination={{ pageSize: 5, showSizeChanger: true, showTotal: (t) => `Total ${t} branches` }}
+            locale={{ emptyText: <div className="py-8 text-center"><EnvironmentOutlined className="text-4xl text-gray-300 mb-2" /><p className="text-gray-500">No branches found</p><p className="text-gray-400 text-sm">Try adjusting your search</p></div> }}
+          />
+        </div>
       </Card>
 
       {/* Edit Location Modal - FoodMeal Style */}

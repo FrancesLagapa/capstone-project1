@@ -197,17 +197,30 @@ class SaleController extends Controller
             ->groupBy('sales.user_id')
             ->get();
 
+        // Daily products (today only)
+        $today = date('Y-m-d');
+        $dailyCounts = DB::table('sale_items')
+            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereDate('sales.sale_date', $today)
+            ->select('sales.user_id', DB::raw('SUM(sale_items.quantity) as daily_products_sold'))
+            ->groupBy('sales.user_id')
+            ->get()
+            ->keyBy('user_id');
+
         \Log::info('[BACKEND] Product counts:', $productCounts->toArray());
 
         // Compute incentive: every 40 products = ₱100
         $result = [];
         foreach ($productCounts as $row) {
             $totalSold = (int) $row->total_products_sold;
+            $dailyRow = $dailyCounts->get($row->user_id);
+            $dailySold = $dailyRow ? (int) $dailyRow->daily_products_sold : 0;
             $incentiveAmount = floor($totalSold / 40) * 100;
 
             $result[$row->user_id] = [
                 'user_id' => $row->user_id,
                 'total_products_sold' => $totalSold,
+                'daily_products_sold' => $dailySold,
                 'incentive_amount' => $incentiveAmount,
                 'thresholds_reached' => floor($totalSold / 40),
             ];

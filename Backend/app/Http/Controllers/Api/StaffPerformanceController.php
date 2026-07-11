@@ -49,6 +49,13 @@ class StaffPerformanceController extends Controller
             ->selectRaw('sales.user_id, COALESCE(SUM(sale_items.quantity), 0) as total_products')
             ->groupBy('sales.user_id')->get()->keyBy('user_id');
 
+        // Daily products (today only)
+        $today = date('Y-m-d');
+        $dailyProductData = SaleItem::join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereDate('sales.sale_date', $today)
+            ->selectRaw('sales.user_id, COALESCE(SUM(sale_items.quantity), 0) as daily_products')
+            ->groupBy('sales.user_id')->get()->keyBy('user_id');
+
         // Previous month for trends
         $prevAttendance = Attendance::whereBetween('date', [$prevStart, $prevEnd])
             ->selectRaw('user_id, COUNT(*) as present_days')
@@ -86,6 +93,8 @@ class StaffPerformanceController extends Controller
             $prevProd = $prevProducts->get($user->id);
 
             $totalProducts = $prod ? (int) $prod->total_products : 0;
+            $dailyProd = $dailyProductData->get($user->id);
+            $dailyProducts = $dailyProd ? (int) $dailyProd->daily_products : 0;
             $thresholds = floor($totalProducts / 40);
             $incentive = $thresholds * 100;
 
@@ -112,6 +121,7 @@ class StaffPerformanceController extends Controller
             $activeTarget = $userTarget ?: $branchTarget;
             $targetProducts = $activeTarget ? (int) $activeTarget->target_products : 40;
             $productTargetPct = $targetProducts > 0 ? round(($totalProducts / $targetProducts) * 100, 1) : 0;
+            $dailyTarget = (int) ceil($targetProducts / date('t', strtotime($startDate)));
 
             $score = $this->computePerformanceScore($attendanceRate, $totalProducts, $targetProducts);
 
@@ -144,7 +154,9 @@ class StaffPerformanceController extends Controller
                 ],
                 'quota' => [
                     'total_products_sold' => $totalProducts,
+                    'daily_products_sold' => $dailyProducts,
                     'target_products' => $targetProducts,
+                    'daily_target' => $dailyTarget,
                     'product_target_pct' => $productTargetPct,
                     'threshold_40_pcs' => $thresholds,
                     'incentive_amount' => $incentive,
@@ -200,6 +212,8 @@ class StaffPerformanceController extends Controller
 
         $totalProductsSold = collect($results)->sum('quota.total_products_sold');
         $totalTargetProducts = collect($results)->sum('quota.target_products');
+        $totalDailyProducts = collect($results)->sum('quota.daily_products_sold');
+        $totalDailyTargets = collect($results)->sum('quota.daily_target');
 
         return response()->json([
             'data' => $results,
@@ -209,12 +223,17 @@ class StaffPerformanceController extends Controller
                 'total_branches' => collect($results)->pluck('branch.name')->unique()->filter()->count(),
                 'total_sales' => round(collect($results)->sum('sales.total_sales'), 2),
                 'total_products_sold' => $totalProductsSold,
+                'total_daily_products' => $totalDailyProducts,
+                'total_daily_targets' => $totalDailyTargets,
                 'total_incentives' => collect($results)->sum('quota.incentive_amount'),
                 'avg_attendance_rate' => collect($results)->avg('attendance.attendance_rate'),
                 'avg_performance_score' => round(collect($results)->avg('performance_score'), 1),
                 'total_target_products' => $totalTargetProducts,
                 'target_achievement_pct' => $totalTargetProducts > 0
                     ? round(($totalProductsSold / $totalTargetProducts) * 100, 1)
+                    : 0,
+                'daily_target_achievement_pct' => $totalDailyTargets > 0
+                    ? round(($totalDailyProducts / $totalDailyTargets) * 100, 1)
                     : 0,
             ],
             'branches' => array_values($branchAggregates),

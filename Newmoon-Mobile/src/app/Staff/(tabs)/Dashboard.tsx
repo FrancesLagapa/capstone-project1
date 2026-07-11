@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -11,11 +11,9 @@ import {
     Modal,
     Pressable,
 } from 'react-native';
-import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as SecureStore from 'expo-secure-store';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import api from '../../../../lib/api';
 import { useAuth } from '../../../../context/authContext';
@@ -67,98 +65,7 @@ const formatDateTime = (value: any) => {
   });
 };
 
-const getBranchIdFromUser = (user: any) => {
-  if (!user) return null;
-  const u = user?.user ? user.user : user;
-  if (!u) return null;
-  if (u.branch_id) return u.branch_id;
-  if (u.branchId) return u.branchId;
-  if (u.branch?.id) return u.branch.id;
-  const assignments = Array.isArray(u.branch_assignments)
-    ? u.branch_assignments
-    : Array.isArray(u.branchAssignments)
-      ? u.branchAssignments
-      : [];
-  const activeAssignment = assignments.find((a: any) => a?.is_active) || assignments[0];
-  return (
-    activeAssignment?.branch_id ||
-    activeAssignment?.branch?.id ||
-    activeAssignment?.branch?.branch_id ||
-    activeAssignment?.id ||
-    null
-  );
-};
-
 const idsEqual = (a: any, b: any) => String(a ?? '') === String(b ?? '');
-
-const resolveBranchId = async () => {
-  const userRaw = Platform.OS === 'web'
-    ? localStorage.getItem('user')
-    : await SecureStore.getItemAsync('user');
-  let user = userRaw ? JSON.parse(userRaw) : null;
-  if (user?.user) user = user.user;
-  let branchId = getBranchIdFromUser(user);
-  if (branchId) {
-    console.log('[DASHBOARD] Branch ID from storage user:', branchId);
-    return branchId;
-  }
-  const connected = await hasNetworkConnection();
-  if (!connected) {
-    console.log('[DASHBOARD] Offline - cannot fetch branch ID from API');
-    return null;
-  }
-  try {
-    const response = await api.get('me');
-    if (response.data) {
-      user = response.data;
-      if (Platform.OS === 'web') {
-        localStorage.setItem('user', JSON.stringify(user));
-      } else {
-        await SecureStore.setItemAsync('user', JSON.stringify(user));
-      }
-    }
-    branchId = getBranchIdFromUser(user);
-    if (branchId) {
-      console.log('[DASHBOARD] Branch ID from /me:', branchId);
-      return branchId;
-    }
-  } catch (error: any) {
-    console.error('[DASHBOARD] Unable to fetch /me:', error);
-    const isNetworkErr = error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED' || error.message?.includes('Network Error') || error.message?.includes('timeout');
-    const is401 = error.response?.status === 401;
-    const isOffline = !await hasNetworkConnection();
-    if (isNetworkErr || (is401 && isOffline)) {
-      console.log('[DASHBOARD] Network error or offline - skipping /me call');
-    }
-  }
-  if (user?.id) {
-    try {
-      console.log('[DASHBOARD] Fallback: fetching staff by user ID', user.id);
-      const staffResponse = await api.get(`staff/${user.id}`);
-      const staffData = staffResponse.data;
-      branchId = getBranchIdFromUser(staffData);
-      if (branchId) {
-        if (Platform.OS === 'web') {
-          localStorage.setItem('user', JSON.stringify({ ...user, branch_id: branchId, branchAssignments: staffData?.branchAssignments }));
-        } else {
-          await SecureStore.setItemAsync('user', JSON.stringify({ ...user, branch_id: branchId, branchAssignments: staffData?.branchAssignments }));
-        }
-        console.log('[DASHBOARD] Branch ID from staff endpoint:', branchId);
-        return branchId;
-      }
-    } catch (error: any) {
-      console.error('[DASHBOARD] Unable to fetch staff assignment:', error);
-      const isNetworkErr = error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED' || error.message?.includes('Network Error') || error.message?.includes('timeout');
-      const is401 = error.response?.status === 401;
-      const isOffline = !await hasNetworkConnection();
-      if (isNetworkErr || (is401 && isOffline)) {
-        console.log('[DASHBOARD] Network error or offline - skipping staff endpoint call');
-      }
-    }
-  }
-  console.log('[DASHBOARD] No branch ID resolved');
-  return null;
-};
 
 const getSaleDate = (sale: any) => {
   const rawDate = sale?.sale_date || sale?.created_at || '';
@@ -240,8 +147,10 @@ const DashboardScreen = () => {
   const SALES_TODAY_PAGE_SIZE = 4;
   const [user, setUser] = useState<any>(null);
   const [quotaProductsSold, setQuotaProductsSold] = useState(0);
+  const [monthlyProductsSold, setMonthlyProductsSold] = useState(0);
   const [quotaIncentive, setQuotaIncentive] = useState(0);
   const [productTarget, setProductTarget] = useState(40);
+  const [monthlyTarget, setMonthlyTarget] = useState(0);
 
   const loadDashboardData = async () => {
     try {
@@ -261,7 +170,9 @@ const DashboardScreen = () => {
       const monthStart = formatLocalDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
       const monthEnd = formatLocalDate(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
       const nextMonthStart = formatLocalDate(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1));
-      const branchId = await resolveBranchId();
+      const { branchId: resolvedBranchId } = await resolveStaffBranch();
+      const branchId = resolvedBranchId;
+      console.log('[DASHBOARD] Resolved branchId:', branchId);
       const branchParams = branchId ? { branch_id: branchId } : {};
       const [productsRes, summaryRes] = await Promise.all([
         api.get('products'),
@@ -299,26 +210,54 @@ const DashboardScreen = () => {
       setTodaySales(todaySalesTotal);
       const storedUser = await getStoredUserFromStorage();
       const now = new Date();
-      const incentivesRes = await api.get('sales/product-incentives', {
-        params: { month: now.getMonth() + 1, year: now.getFullYear() },
-      });
-      const incentivesData = incentivesRes?.data || {};
-      const userIncentive = Object.values(incentivesData).find(
-        (entry: any) => entry?.user_id === storedUser?.id
-      ) as any;
-      setQuotaProductsSold(userIncentive?.total_products_sold ?? 0);
-      setQuotaIncentive(userIncentive?.incentive_amount ?? 0);
 
-      // Fetch product target for the branch
-      if (branchId) {
-        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        try {
-          const targetRes = await api.get('sales-targets', { params: { month: currentMonth, branch_id: branchId } });
-          const targetList = targetRes?.data?.data || [];
-          if (targetList.length > 0) {
-            setProductTarget(Number(targetList[0].target_products) || 40);
-          }
-        } catch {}
+      // Fetch incentives (independent - don't block target fetch)
+      try {
+        const incentivesRes = await api.get('sales/product-incentives', {
+          params: { month: now.getMonth() + 1, year: now.getFullYear() },
+        });
+        const incentivesData = incentivesRes?.data || {};
+        const userIncentive = Object.values(incentivesData).find(
+          (entry: any) => entry?.user_id === storedUser?.id
+        ) as any;
+        setQuotaProductsSold(userIncentive?.daily_products_sold ?? 0);
+        setMonthlyProductsSold(userIncentive?.total_products_sold ?? 0);
+        setQuotaIncentive(userIncentive?.incentive_amount ?? 0);
+      } catch (incentiveErr) {
+        console.error('[DASHBOARD] Error fetching incentives:', incentiveErr);
+        setQuotaProductsSold(0);
+        setQuotaIncentive(0);
+      }
+
+      // Fetch product target for the branch (independent)
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      try {
+        console.log('[DASHBOARD] Fetching sales targets for month:', currentMonth, 'branch:', branchId);
+        const targetRes = await api.get('sales-targets', { params: { month: currentMonth } });
+        const allTargets = targetRes?.data?.data || [];
+        console.log('[DASHBOARD] All targets for month:', JSON.stringify(allTargets));
+
+        let matchedTarget = null;
+        if (branchId) {
+          matchedTarget = allTargets.find((t: any) => String(t.branch_id) === String(branchId));
+        }
+        if (!matchedTarget && allTargets.length > 0) {
+          matchedTarget = allTargets[0];
+        }
+
+        if (matchedTarget) {
+          const monthly = Number(matchedTarget.target_products) || 0;
+          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+          const daily = monthly > 0 ? Math.ceil(monthly / daysInMonth) : 0;
+          console.log('[DASHBOARD] Matched target:', { branch_id: matchedTarget.branch_id, monthly, daily });
+          setMonthlyTarget(monthly);
+          setProductTarget(daily);
+        } else {
+          console.log('[DASHBOARD] No target found for this branch/month');
+          setMonthlyTarget(0);
+        }
+      } catch (targetErr) {
+        console.error('[DASHBOARD] Error fetching target:', targetErr);
       }
     } catch (error: any) {
       if (isAuthError(error) || isNetworkError(error)) {
@@ -342,6 +281,12 @@ const DashboardScreen = () => {
     loadDashboardData();
     loadUserData();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboardData();
+    }, [])
+  );
 
   const loadUserData = async () => {
     const userData = await getStoredUser();
@@ -473,20 +418,15 @@ const DashboardScreen = () => {
                   </View>
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, marginTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.15)' }}>
-                <View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 16, marginTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.15)' }}>
+                <View style={{ alignItems: 'center' }}>
                   <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '500' }}>This Month</Text>
                   <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 18 }}>₱{grossSales.toLocaleString()}</Text>
                 </View>
-                <View>
-                  <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '500' }}>Product Target</Text>
-                  <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 18 }}>{quotaProductsSold}/{productTarget} pcs</Text>
-                </View>
-                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Icon name={quotaProductsSold >= productTarget ? "arrow-upward" : "arrow-downward"} size={14} color="white" />
-                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '700', marginLeft: 4 }}>{productTarget > 0 ? Math.round((quotaProductsSold / productTarget) * 100) : 0}%</Text>
-                  </View>
+                <View style={{ width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.2)' }} />
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '500' }}>Sales Target</Text>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 18 }}>{monthlyTarget > 0 ? `${monthlyTarget} pcs` : 'Not set'}</Text>
                 </View>
               </View>
             </View>
@@ -497,22 +437,31 @@ const DashboardScreen = () => {
         <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
           <View style={[CARD, { padding: 20 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: 0.5 }}>Monthly Quota</Text>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: COLORS.PRIMARY_RED }}>₱{quotaIncentive.toLocaleString()}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.TEXT_SECONDARY, textTransform: 'uppercase', letterSpacing: 0.5 }}>Product Quota</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.TEXT_PRIMARY }}>₱100 per 40 products</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <View style={{ flex: 1, height: 10, backgroundColor: COLORS.ACCENT_LIGHT, borderRadius: 5, overflow: 'hidden' }}>
                 <View style={{
                   height: '100%', borderRadius: 5,
-                  width: `${Math.min((quotaProductsSold / productTarget) * 100, 100)}%`,
-                  backgroundColor: quotaProductsSold >= productTarget ? COLORS.STATUS_APPROVED_TEXT : COLORS.STATUS_PENDING_TEXT,
+                  width: `${Math.min((quotaProductsSold / 40) * 100, 100)}%`,
+                  backgroundColor: quotaProductsSold >= 40 ? COLORS.STATUS_APPROVED_TEXT : COLORS.STATUS_PENDING_TEXT,
                 }} />
               </View>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.TEXT_PRIMARY, marginLeft: 12 }}>{quotaProductsSold}/{productTarget}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.TEXT_PRIMARY, marginLeft: 12 }}>{quotaProductsSold}/40</Text>
             </View>
-            <Text style={{ fontSize: 12, color: COLORS.TEXT_SECONDARY }}>
-              {quotaProductsSold >= productTarget ? 'Target reached! Products delivered.' : `${productTarget - quotaProductsSold} pcs remaining to reach target`}
+            <Text style={{ fontSize: 12, color: COLORS.TEXT_SECONDARY, marginBottom: 12 }}>
+              {quotaProductsSold >= 40 ? 'Target reached today!' : `${40 - quotaProductsSold} products remaining today`}
             </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: quotaIncentive > 0 ? COLORS.ACCENT_LIGHT : COLORS.CARD_BG, borderRadius: 10, padding: 10, marginTop: 4 }}>
+              <Icon name="emoji-events" size={18} color={quotaIncentive > 0 ? COLORS.STATUS_APPROVED_TEXT : COLORS.TEXT_MUTED} />
+              <View style={{ marginLeft: 8 }}>
+                <Text style={{ fontSize: 12, color: COLORS.TEXT_SECONDARY }}>Today's Incentive</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: quotaIncentive > 0 ? COLORS.TEXT_PRIMARY : COLORS.TEXT_MUTED }}>
+                  {quotaIncentive > 0 ? `₱${quotaIncentive.toLocaleString()}` : '₱0'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
