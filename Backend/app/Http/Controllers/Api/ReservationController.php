@@ -86,7 +86,7 @@ class ReservationController extends Controller
 
     // ── admin endpoints ──
 
-    private const VALID_STATUSES = ['pending', 'confirmed', 'ready', 'picked_up', 'cancelled'];
+    private const VALID_STATUSES = ['pending', 'confirmed', 'ready', 'picked_up', 'completed', 'cancelled'];
 
     public function adminIndex(Request $request)
     {
@@ -188,6 +188,83 @@ class ReservationController extends Controller
         }
 
         $reservation->update(['status' => 'cancelled']);
+
+        return response()->json(Reservation::with(['branch', 'user'])->find($reservation->id));
+    }
+
+    // ── staff endpoints ──
+
+    public function staffIndex(Request $request)
+    {
+        $user = $request->user();
+        $branchId = $user->current_branch_id;
+
+        // Auto-cancel ready reservations past 8PM on their pickup date
+        $now = now();
+        $today = $now->toDateString();
+
+        // Cancel from past dates
+        Reservation::where('status', 'ready')
+            ->whereDate('pickup_date', '<', $today)
+            ->update(['status' => 'cancelled']);
+
+        // Cancel from today if past 8PM
+        if ((int) $now->format('H') >= 20) {
+            Reservation::where('status', 'ready')
+                ->whereDate('pickup_date', '=', $today)
+                ->update(['status' => 'cancelled']);
+        }
+
+        $query = Reservation::with(['branch', 'user']);
+
+        if ($branchId) {
+            $query->where('branch_id', $branchId);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $reservations = $query->orderBy('created_at', 'desc')
+            ->paginate($request->input('per_page', 50));
+
+        return response()->json($reservations);
+    }
+
+    public function staffMarkPickedUp(Request $request, $id)
+    {
+        $reservation = Reservation::findOrFail($id);
+        $user = $request->user();
+        $branchId = $user->current_branch_id;
+
+        if ($branchId && $reservation->branch_id != $branchId) {
+            return response()->json(['message' => 'Reservation does not belong to your branch'], 403);
+        }
+
+        if ($reservation->status !== 'ready') {
+            return response()->json(['message' => 'Only ready reservations can be marked picked up'], 400);
+        }
+
+        $reservation->update(['status' => 'picked_up']);
+
+        return response()->json(Reservation::with(['branch', 'user'])->find($reservation->id));
+    }
+
+    public function staffMarkComplete(Request $request, $id)
+    {
+        $reservation = Reservation::findOrFail($id);
+        $user = $request->user();
+        $branchId = $user->current_branch_id;
+
+        if ($branchId && $reservation->branch_id != $branchId) {
+            return response()->json(['message' => 'Reservation does not belong to your branch'], 403);
+        }
+
+        if ($reservation->status !== 'picked_up') {
+            return response()->json(['message' => 'Only picked up reservations can be completed'], 400);
+        }
+
+        $reservation->update(['status' => 'completed']);
 
         return response()->json(Reservation::with(['branch', 'user'])->find($reservation->id));
     }

@@ -148,22 +148,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         };
       }
 
-      const resolvedUserType = normalizeUserType(registeredUser?.role) || 'customer';
-      const cachedUser = await persistAuthSession(
-        token,
-        registeredUser,
-        resolvedUserType,
-      );
-
-      setUser(cachedUser);
-      setUserType(resolvedUserType);
-      setIsAuthenticated(true);
-
       return {
         success: true,
-        token,
-        user: cachedUser,
-        userType: resolvedUserType,
       };
     } catch (error: any) {
       if (error?.response?.status === 422 && error?.response?.data?.errors) {

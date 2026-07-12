@@ -9,6 +9,7 @@ import {
   Alert,
   Dimensions,
   StatusBar,
+  StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -48,7 +49,7 @@ interface DeliveryOrder {
   branchId?: number;
 }
 
-// MAP HTML - INITIAL LOAD WITH ROUTE MANAGEMENT FUNCTIONS
+// MAP HTML WITH DYNAMIC ROUTE SHRINKING
 const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat?: number, riderLng?: number) => {
   return `
 <!DOCTYPE html>
@@ -81,6 +82,30 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
       border: 2px solid white;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
+    .route-layer {
+      transition: all 0.5s ease;
+    }
+    .route-remaining {
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 0;
+      animation: dash 2s ease-in-out;
+    }
+    .moving-dot {
+      background: #3B82F6;
+      border-radius: 50%;
+      border: 3px solid white;
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 0 0 4px rgba(59,130,246,0.3);
+    }
+    .moving-dot-pulse {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+      100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+    }
   </style>
 </head>
 <body>
@@ -110,6 +135,12 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
           window.routeLines = [];
           window.orderMarkers = {};
           window.branchMarkers = [];
+          window.activeRoutes = {};
+          window.riderMarker = null;
+          window.riderPos = null;
+          window.routeProgress = {};
+          window.lastKnownOrderId = null;
+          window.routeSegments = {};
 
           // ─── Icons ──────────────────────────────────────────
           var branchIcon = L.divIcon({
@@ -120,7 +151,7 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
           });
 
           var pinSvg = function(color) {
-            return '<svg viewBox="0 0 36 48" width="30" height="40"><path d="M18 0C8.06 0 0 8.06 0 18c0 13.5 18 30 18 30s18-16.5 18-30C36 8.06 27.94 0 18 0z" fill="' + color + '" stroke="white" stroke-width="1.5"/><circle cx="18" cy="18" r="10" fill="white"/><path d="M18 10c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 2c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z" fill="' + color + '" transform="translate(4,2)"/></svg>';
+            return '<svg viewBox="0 0 36 48" width="30" height="40"><path d="M18 0C8.06 0 0 8.06 0 18c0 13.5 18 30 18 30s18-16.5 18-18C36 8.06 27.94 0 18 0z" fill="' + color + '" stroke="white" stroke-width="1.5"/><circle cx="18" cy="18" r="10" fill="white"/><path d="M18 10c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 2c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z" fill="' + color + '" transform="translate(4,2)"/></svg>';
           };
 
           var orderIcons = {
@@ -164,53 +195,161 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
 
           window.orderIcons = orderIcons;
 
-          // ─── Rider Marker - BLUE ──────────────────────────
+          // ─── Single Rider Marker (Moving Dot) ──────────────────
           var riderIcon = L.divIcon({
-            html: '<div style="width:16px;height:16px;background:#3B82F6;border-radius:50%;border:3px solid white;box-shadow:0 0 0 4px rgba(59,130,246,0.3);"></div>',
+            html: '<div class="moving-dot moving-dot-pulse"></div>',
             iconSize: [16, 16],
             iconAnchor: [8, 8],
             className: ''
           });
 
-          var riderLat = ${riderLat || 'null'};
-          var riderLng = ${riderLng || 'null'};
-          
-          if (riderLat && riderLng) {
-            window.__riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon }).addTo(map)
-              .bindPopup('You are here');
-            window.__riderPos = { lat: riderLat, lng: riderLng };
+          // ─── Initialize rider marker ────────────────────────
+          function initRiderMarker(lat, lng) {
+            if (window.riderMarker) {
+              window.map.removeLayer(window.riderMarker);
+            }
+            window.riderMarker = L.marker([lat, lng], { icon: riderIcon }).addTo(map);
+            window.riderMarker.bindPopup('📍 You are here');
+            window.riderPos = { lat: lat, lng: lng };
+            return window.riderMarker;
           }
 
-          // ─── Store Routes ──────────────────────────────────
+          // ─── Find nearest point on route ────────────────────
+          function findNearestPointOnRoute(routeCoords, lat, lng) {
+            if (!routeCoords || routeCoords.length < 2) return null;
+            
+            var minDist = Infinity;
+            var nearestPoint = null;
+            var nearestIndex = 0;
+            
+            for (var i = 0; i < routeCoords.length; i++) {
+              var p = routeCoords[i];
+              var d = Math.pow(p[0] - lat, 2) + Math.pow(p[1] - lng, 2);
+              if (d < minDist) {
+                minDist = d;
+                nearestPoint = p;
+                nearestIndex = i;
+              }
+            }
+            
+            return {
+              point: nearestPoint,
+              index: nearestIndex,
+              coords: routeCoords
+            };
+          }
+
+          // ─── Update route to show remaining path ────────────
+          function updateRoutePath(orderId, currentIndex) {
+            if (!window.routeSegments[orderId]) return;
+            
+            var fullCoords = window.routeSegments[orderId].fullCoords;
+            if (!fullCoords || fullCoords.length === 0) return;
+            
+            // Get remaining path from current position to destination
+            var remainingCoords = fullCoords.slice(currentIndex);
+            
+            // Remove old route
+            if (window.activeRoutes[orderId]) {
+              window.map.removeLayer(window.activeRoutes[orderId]);
+            }
+            
+            // Create new route with remaining path
+            var line = L.polyline(remainingCoords, { 
+              color: window.routeColor, 
+              weight: 5, 
+              opacity: 0.9,
+              smoothFactor: 1,
+              className: 'route-layer'
+            });
+            
+            line.addTo(window.map);
+            window.activeRoutes[orderId] = line;
+            
+            // Store the progress
+            window.routeProgress[orderId] = {
+              currentIndex: currentIndex,
+              totalLength: fullCoords.length,
+              remaining: remainingCoords.length
+            };
+          }
+
+          // ─── Update rider position with route following ─────
+          window.__updateRiderPos = function(lat, lng, orderId) {
+            if (!window.riderMarker) {
+              initRiderMarker(lat, lng);
+            }
+
+            if (orderId && window.routeSegments[orderId]) {
+              var fullCoords = window.routeSegments[orderId].fullCoords;
+              
+              if (fullCoords && fullCoords.length >= 2) {
+                var nearest = findNearestPointOnRoute(fullCoords, lat, lng);
+                if (nearest && nearest.point) {
+                  window.riderMarker.setLatLng([nearest.point[0], nearest.point[1]]);
+                  window.riderPos = { lat: nearest.point[0], lng: nearest.point[1] };
+                  
+                  // Update route to show only remaining path
+                  updateRoutePath(orderId, nearest.index);
+                  return;
+                }
+              }
+            }
+
+            window.riderMarker.setLatLng([lat, lng]);
+            window.riderPos = { lat: lat, lng: lng };
+          };
+
+          // ─── Persistent Route Management ────────────────────
           window.routeCache = {};
           window.routeColor = '#3B82F6';
           window.__routeGeneration = 0;
+          window.pendingRouteFetches = {};
 
-          // ─── Function to update/refresh routes ────────────
           window.__updateRoutes = function(ordersData, riderLat, riderLng) {
-            // Increment generation — stale fetches will see this and bail
-            var myGen = ++window.__routeGeneration;
+            if (!riderLat || !riderLng) return;
 
-            if (window.routeLines) {
-              window.routeLines.forEach(function(layer) {
-                if (window.map) window.map.removeLayer(layer);
-              });
-              window.routeLines = [];
-            }
+            var currentOrderIds = ordersData.map(o => o.id);
+            var activeOrderIds = Object.keys(window.activeRoutes);
 
-            if (!riderLat || !riderLng || !ordersData || ordersData.length === 0) return;
+            // Remove routes for orders that are no longer active
+            activeOrderIds.forEach(function(id) {
+              if (!currentOrderIds.includes(id)) {
+                if (window.activeRoutes[id]) {
+                  window.map.removeLayer(window.activeRoutes[id]);
+                  delete window.activeRoutes[id];
+                }
+                if (window.routeCache[id]) {
+                  delete window.routeCache[id];
+                }
+                if (window.routeSegments[id]) {
+                  delete window.routeSegments[id];
+                }
+                if (window.routeProgress[id]) {
+                  delete window.routeProgress[id];
+                }
+              }
+            });
 
-            var color = window.routeColor;
-            var fetchPromises = [];
-
+            // Update or create routes for active orders
             ordersData.forEach(function(o) {
               if (!o.latitude || !o.longitude) return;
+              
+              var orderId = o.id;
               var cacheKey = riderLat + ',' + riderLng + '|' + o.latitude + ',' + o.longitude;
 
-              if (window.routeCache && window.routeCache[cacheKey]) {
-                if (window.__routeGeneration !== myGen) return;
-                var cached = window.routeCache[cacheKey];
-                drawRoute(cached, color, o);
+              // Check if we already have this route cached
+              if (window.routeCache[orderId] && window.routeCache[orderId].cacheKey === cacheKey) {
+                // Route exists, just update the rider position
+                if (window.lastKnownOrderId === orderId || !window.lastKnownOrderId) {
+                  window.lastKnownOrderId = orderId;
+                  window.__updateRiderPos(riderLat, riderLng, orderId);
+                }
+                return;
+              }
+
+              // Prevent duplicate fetches
+              if (window.pendingRouteFetches[orderId]) {
                 return;
               }
 
@@ -219,77 +358,102 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
                 + o.longitude + ',' + o.latitude
                 + '?geometries=geojson&overview=full&alternatives=false&steps=false';
 
-              var promise = fetch(url)
+              window.pendingRouteFetches[orderId] = true;
+
+              fetch(url)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                  // Stale — a newer update already ran, discard this result
-                  if (window.__routeGeneration !== myGen) return null;
-                  if (data.code !== 'Ok' || !data.routes || !data.routes[0]) return null;
+                  delete window.pendingRouteFetches[orderId];
+                  
+                  if (data.code !== 'Ok' || !data.routes || !data.routes[0]) return;
+                  
                   var route = data.routes[0];
                   var coords = route.geometry.coordinates.map(function(c) {
                     return [c[1], c[0]];
                   });
                   
-                  if (window.routeCache) {
-                    window.routeCache[cacheKey] = { coords: coords, route: route };
-                  }
+                  // Store full route coordinates
+                  window.routeSegments[orderId] = {
+                    fullCoords: coords,
+                    route: route
+                  };
                   
-                  drawRoute({ coords: coords, route: route }, color, o);
-                  return { coords: coords, route: route };
+                  window.routeCache[orderId] = {
+                    coords: coords,
+                    route: route,
+                    cacheKey: cacheKey,
+                    timestamp: Date.now()
+                  };
+
+                  // Remove old route if exists
+                  if (window.activeRoutes[orderId]) {
+                    window.map.removeLayer(window.activeRoutes[orderId]);
+                  }
+
+                  // Show full route initially
+                  var line = L.polyline(coords, { 
+                    color: window.routeColor, 
+                    weight: 5, 
+                    opacity: 0.9,
+                    smoothFactor: 1,
+                    className: 'route-layer'
+                  });
+                  
+                  line.addTo(window.map);
+                  window.activeRoutes[orderId] = line;
+
+                  // Update rider position on this route
+                  if (window.lastKnownOrderId === orderId || !window.lastKnownOrderId) {
+                    window.lastKnownOrderId = orderId;
+                    window.__updateRiderPos(riderLat, riderLng, orderId);
+                  }
                 })
                 .catch(function(err) {
+                  delete window.pendingRouteFetches[orderId];
                   console.log('Route fetch error:', err);
-                  return null;
                 });
-
-              fetchPromises.push(promise);
-            });
-
-            Promise.all(fetchPromises).then(function() {
-              // Don't force fit bounds - preserve user's view
             });
           };
 
-          // ─── Helper to draw a single route ────────────────
-          function drawRoute(routeData, color, order) {
-            if (!routeData || !routeData.coords || routeData.coords.length < 2) return;
-            if (!window.map) return;
-
-            var coords = routeData.coords;
-            var route = routeData.route;
-
-            var line = L.polyline(coords, {
-              color: color,
-              weight: 5,
-              opacity: 0.9,
-            }).addTo(window.map);
-
-            window.routeLines.push(line);
-          }
-
-          // ─── Function to update order markers ─────────────
+          // ─── Update Order Markers ──────────────────────────
           window.__updateOrderMarkers = function(ordersData) {
-            if (window.orderMarkers) {
-              Object.keys(window.orderMarkers).forEach(function(key) {
-                if (window.map) window.map.removeLayer(window.orderMarkers[key]);
-              });
-              window.orderMarkers = {};
-            }
+            var currentOrderIds = ordersData.map(o => o.id);
+            var existingOrderIds = Object.keys(window.orderMarkers);
 
-            if (!ordersData || ordersData.length === 0) return;
+            existingOrderIds.forEach(function(id) {
+              if (!currentOrderIds.includes(id)) {
+                if (window.orderMarkers[id]) {
+                  window.map.removeLayer(window.orderMarkers[id]);
+                  delete window.orderMarkers[id];
+                }
+              }
+            });
 
             var orderIcons = window.orderIcons || {};
             
             ordersData.forEach(function(o) {
               if (!o.latitude || !o.longitude) return;
+              
+              var existingMarker = window.orderMarkers[o.id];
               var icon = orderIcons[o.status] || orderIcons['Pending'];
-              var m = L.marker([o.latitude, o.longitude], { icon: icon }).addTo(window.map);
-              m.bindPopup('<b>' + o.customer + '</b><br>' + o.address + '<br>' + o.items + '<br>' + o.total);
-              window.orderMarkers[o.id] = m;
+
+              if (existingMarker) {
+                var currentPos = existingMarker.getLatLng();
+                if (currentPos.lat !== o.latitude || currentPos.lng !== o.longitude) {
+                  existingMarker.setLatLng([o.latitude, o.longitude]);
+                }
+                if (existingMarker.options.icon !== icon) {
+                  existingMarker.setIcon(icon);
+                }
+              } else {
+                var m = L.marker([o.latitude, o.longitude], { icon: icon }).addTo(window.map);
+                m.bindPopup('<b>' + o.customer + '</b><br>' + o.address + '<br>' + o.items + '<br>' + o.total);
+                window.orderMarkers[o.id] = m;
+              }
             });
           };
 
-          // ─── Initial data load ────────────────────────────
+          // ─── Initial Setup ──────────────────────────────────
           var initialOrders = ${JSON.stringify(orders)};
           var initialBranches = ${JSON.stringify(branches)};
 
@@ -308,8 +472,32 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
           var riderLat2 = ${riderLat || 'null'};
           var riderLng2 = ${riderLng || 'null'};
           if (riderLat2 && riderLng2) {
+            initRiderMarker(riderLat2, riderLng2);
             window.__updateRoutes(initialOrders, riderLat2, riderLng2);
           }
+
+          // ─── Main Update Function ──────────────────────────
+          window.__updateOrders = function(newOrders, riderLat, riderLng) {
+            window.__updateOrderMarkers(newOrders);
+            
+            if (riderLat && riderLng) {
+              if (!window.riderMarker) {
+                initRiderMarker(riderLat, riderLng);
+              }
+            }
+            
+            var currentRiderPos = window.riderPos || { lat: riderLat, lng: riderLng };
+            if (currentRiderPos && currentRiderPos.lat && currentRiderPos.lng) {
+              window.__updateRoutes(newOrders, currentRiderPos.lat, currentRiderPos.lng);
+            }
+          };
+
+          window.__updateMovingDot = function(lat, lng, orderId) {
+            if (!window.riderMarker) {
+              initRiderMarker(lat, lng);
+            }
+            window.__updateRiderPos(lat, lng, orderId);
+          };
 
           map.on('moveend', function() {
             try {
@@ -327,20 +515,6 @@ const GENERATE_MAP_HTML = (branches: Branch[], orders: DeliveryOrder[], riderLat
           if (savedView && savedView.lat != null && savedView.lng != null && savedView.zoom != null) {
             map.setView([savedView.lat, savedView.lng], savedView.zoom, { animate: false });
           }
-
-          window.__updateRiderPos = function(lat, lng) {
-            if (window.__riderMarker) {
-              window.__riderMarker.setLatLng([lat, lng]);
-            }
-            window.__riderPos = { lat: lat, lng: lng };
-          };
-
-          window.__updateOrders = function(newOrders) {
-            window.__orders = newOrders;
-            window.__updateOrderMarkers(newOrders);
-            var riderPos = window.__riderPos || { lat: ${riderLat || 14.5600}, lng: ${riderLng || 121.0200} };
-            window.__updateRoutes(newOrders, riderPos.lat, riderPos.lng);
-          };
 
           setTimeout(function() {
             map.invalidateSize();
@@ -404,11 +578,13 @@ export default function RiderMapScreen() {
 
   const mapReadyRef = useRef(false);
   const prevOrdersRef = useRef<string>('');
+  const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSelectedOrderRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadBranches();
     loadOrders();
-    const interval = setInterval(loadOrders, 1000);
+    const interval = setInterval(loadOrders, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -445,9 +621,17 @@ export default function RiderMapScreen() {
       
       if (isMapReady && webViewRef.current) {
         const activeOrders = mapped.filter(o => o.status === 'Picked Up' || o.status === 'Out for Delivery');
+        const riderPos = riderLocation || { lat: 14.5600, lng: 121.0200 };
+        
+        const targetOrderId = lastSelectedOrderRef.current || 
+                             (activeOrders.length > 0 ? activeOrders[0].id : null);
+        
         const js = `
           if (window.__updateOrders) {
-            window.__updateOrders(${JSON.stringify(activeOrders)});
+            window.__updateOrders(${JSON.stringify(activeOrders)}, ${riderPos.lat}, ${riderPos.lng});
+          }
+          if (window.__updateMovingDot && ${targetOrderId ? `'${targetOrderId}'` : 'null'}) {
+            window.__updateMovingDot(${riderPos.lat}, ${riderPos.lng}, '${targetOrderId}');
           }
           true;
         `;
@@ -465,7 +649,7 @@ export default function RiderMapScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       watchSub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, timeInterval: 1000, distanceInterval: 5 },
+        { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
         (loc) => {
           const { latitude, longitude } = loc.coords;
           setRiderLocation({ lat: latitude, lng: longitude });
@@ -475,7 +659,7 @@ export default function RiderMapScreen() {
     return () => { watchSub?.remove(); };
   }, []);
 
-  // ─── Send rider location to backend every 3s ────────────
+  // ─── Send rider location to backend ────────────────────────────
   const riderLocationRef = useRef(riderLocation);
   const ordersRef = useRef(orders);
   riderLocationRef.current = riderLocation;
@@ -508,7 +692,7 @@ export default function RiderMapScreen() {
           });
         } catch {}
       }
-    }, 1000);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -532,7 +716,7 @@ export default function RiderMapScreen() {
 
   const mapOrders = orders.filter(o => o.status === 'Picked Up' || o.status === 'Out for Delivery');
 
-  // Generate map HTML only once (or when branches change significantly)
+  // Generate map HTML only once
   useEffect(() => {
     if (branches.length > 0) {
       const html = GENERATE_MAP_HTML(branches, mapOrders, riderLocation?.lat, riderLocation?.lng);
@@ -541,37 +725,34 @@ export default function RiderMapScreen() {
     }
   }, [branches]);
 
-  // Smooth rider marker movement + refresh routes from new position (debounced)
-  const routeUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => { if (routeUpdateTimerRef.current) clearTimeout(routeUpdateTimerRef.current); };
-  }, []);
+  // Smooth rider marker movement with route following
   useEffect(() => {
     if (!isMapReady || !riderLocation || !webViewRef.current) return;
-    const js = `
-      if (window.__updateRiderPos) {
-        window.__updateRiderPos(${riderLocation.lat}, ${riderLocation.lng});
-      }
-      true;
-    `;
-    webViewRef.current.injectJavaScript(js);
-
-    // Debounce route refresh from rider movement (3s)
-    if (routeUpdateTimerRef.current) clearTimeout(routeUpdateTimerRef.current);
-    routeUpdateTimerRef.current = setTimeout(() => {
+    
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    updateTimeoutRef.current = setTimeout(() => {
       const activeOrders = orders.filter(o => o.status === 'Picked Up' || o.status === 'Out for Delivery');
-      if (activeOrders.length > 0 && webViewRef.current) {
-        const js2 = `
-          if (window.__updateOrders) {
-            window.__updateOrders(${JSON.stringify(activeOrders)});
-          }
-          true;
-        `;
-        webViewRef.current.injectJavaScript(js2);
+      const targetOrderId = lastSelectedOrderRef.current || 
+                           (activeOrders.length > 0 ? activeOrders[0].id : null);
+      
+      const js = `
+        if (window.__updateMovingDot) {
+          window.__updateMovingDot(${riderLocation.lat}, ${riderLocation.lng}, ${targetOrderId ? `'${targetOrderId}'` : 'null'});
+        }
+        true;
+      `;
+      webViewRef.current?.injectJavaScript(js);
+    }, 100);
+    
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
       }
-    }, 3000);
-  }, [riderLocation, isMapReady]);
+    };
+  }, [riderLocation, isMapReady, orders]);
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
     try {
@@ -580,6 +761,7 @@ export default function RiderMapScreen() {
         openDirections(msg.lat, msg.lng, msg.label || '');
       } else if (msg.type === 'select') {
         setSelectedId(String(msg.id));
+        lastSelectedOrderRef.current = String(msg.id);
       }
     } catch (err) {
       console.log('[Map] Message error:', err);
@@ -595,6 +777,8 @@ export default function RiderMapScreen() {
 
   const focusItem = (lat: number, lng: number, id: string) => {
     setSelectedId(id);
+    lastSelectedOrderRef.current = id;
+    
     const js = `
       if (window.map) {
         window.map.setView([${lat}, ${lng}], 16, { animate: true });
@@ -607,16 +791,19 @@ export default function RiderMapScreen() {
     webViewRef.current?.injectJavaScript(js);
   };
 
-  const resetView = () => {
-    setSelectedId(null);
-    const js = `
-      if (window.map && window.__riderPos) {
-        var pos = window.__riderPos;
-        window.map.setView([pos.lat, pos.lng], 14, { animate: true });
-      }
-      true;
-    `;
-    webViewRef.current?.injectJavaScript(js);
+  const centerOnRider = () => {
+    if (riderLocation) {
+      setSelectedId(null);
+      const js = `
+        if (window.map) {
+          window.map.setView([${riderLocation.lat}, ${riderLocation.lng}], 15, { animate: true });
+        }
+        true;
+      `;
+      webViewRef.current?.injectJavaScript(js);
+    } else {
+      Alert.alert('Location Unavailable', 'Unable to get your current location. Please check your GPS settings.');
+    }
   };
 
   const toPickup = orders.filter(o => ['Ready', 'Preparing', 'Picked Up'].includes(o.status));
@@ -681,7 +868,7 @@ export default function RiderMapScreen() {
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()} 
-            className="p-2 active:opacity-70"
+            className="p-2"
             activeOpacity={0.7}
           >
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
@@ -696,17 +883,20 @@ export default function RiderMapScreen() {
           
           <View className="flex-row items-center gap-1 ml-auto">
             <TouchableOpacity 
-              onPress={resetView} 
-              className="bg-gray-100 p-2 rounded-xl active:opacity-70"
+              onPress={centerOnRider}
+              className="bg-gray-100 p-2 rounded-xl"
               activeOpacity={0.7}
+              style={styles.button}
             >
               <Ionicons name="locate-outline" size={18} color="#3B82F6" />
             </TouchableOpacity>
+            
             <TouchableOpacity 
               onPress={loadBranches} 
-              className="bg-gray-100 p-2 rounded-xl active:opacity-70"
+              className="bg-gray-100 p-2 rounded-xl"
               activeOpacity={0.7}
               disabled={isRefreshing}
+              style={styles.button}
             >
               {isRefreshing ? (
                 <ActivityIndicator size={18} color="#F59E0B" />
@@ -745,9 +935,26 @@ export default function RiderMapScreen() {
               mapReadyRef.current = true;
               setIsMapReady(true);
               if (riderLocation) {
+                const activeOrders = orders.filter(o => o.status === 'Picked Up' || o.status === 'Out for Delivery');
+                const targetOrderId = activeOrders.length > 0 ? activeOrders[0].id : null;
                 const js = `
-                  if (window.__updateRiderPos) {
-                    window.__updateRiderPos(${riderLocation.lat}, ${riderLocation.lng});
+                  if (window.__updateMovingDot) {
+                    window.__updateMovingDot(${riderLocation.lat}, ${riderLocation.lng}, ${targetOrderId ? `'${targetOrderId}'` : 'null'});
+                  }
+                  true;
+                `;
+                webViewRef.current?.injectJavaScript(js);
+              }
+              const activeOrders = orders.filter(o => o.status === 'Picked Up' || o.status === 'Out for Delivery');
+              if (activeOrders.length > 0) {
+                const riderPos = riderLocation || { lat: 14.5600, lng: 121.0200 };
+                const targetOrderId = activeOrders[0].id;
+                const js = `
+                  if (window.__updateOrders) {
+                    window.__updateOrders(${JSON.stringify(activeOrders)}, ${riderPos.lat}, ${riderPos.lng});
+                  }
+                  if (window.__updateMovingDot) {
+                    window.__updateMovingDot(${riderPos.lat}, ${riderPos.lng}, '${targetOrderId}');
                   }
                   true;
                 `;
@@ -809,7 +1016,7 @@ export default function RiderMapScreen() {
                   key={order.id}
                   className={`flex-row items-center py-3 border-b border-gray-100 ${
                     isSelected ? 'bg-yellow-50 -mx-2 px-2 rounded-xl' : ''
-                  } active:opacity-70`}
+                  }`}
                   activeOpacity={0.7}
                   onPress={() => focusItem(order.latitude, order.longitude, order.id)}
                 >
@@ -845,9 +1052,9 @@ export default function RiderMapScreen() {
                   <View className="items-end ml-2">
                     <Text className="text-sm font-bold text-gray-900">{order.total}</Text>
                     <TouchableOpacity
-                      className="mt-1.5 bg-yellow-50 px-3 py-1.5 rounded-full border border-yellow-200 active:opacity-70"
-                      onPress={() => openDirections(order.latitude, order.longitude, order.customer)}
+                      className="mt-1.5 bg-yellow-50 px-3 py-1.5 rounded-full border border-yellow-200"
                       activeOpacity={0.7}
+                      onPress={() => openDirections(order.latitude, order.longitude, order.customer)}
                     >
                       <View className="flex-row items-center">
                         <Ionicons name="navigate" size={12} color="#3B82F6" />
@@ -864,3 +1071,12 @@ export default function RiderMapScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  button: {
+    minWidth: 36,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

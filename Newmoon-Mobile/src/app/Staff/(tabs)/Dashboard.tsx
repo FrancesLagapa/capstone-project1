@@ -224,6 +224,7 @@ const DashboardScreen = () => {
         setMonthlyProductsSold(userIncentive?.total_products_sold ?? 0);
         setQuotaIncentive(userIncentive?.incentive_amount ?? 0);
       } catch (incentiveErr) {
+        if (isAuthError(incentiveErr)) throw incentiveErr;
         console.error('[DASHBOARD] Error fetching incentives:', incentiveErr);
         setQuotaProductsSold(0);
         setQuotaIncentive(0);
@@ -257,10 +258,18 @@ const DashboardScreen = () => {
           setMonthlyTarget(0);
         }
       } catch (targetErr) {
+        if (isAuthError(targetErr)) throw targetErr;
         console.error('[DASHBOARD] Error fetching target:', targetErr);
       }
     } catch (error: any) {
-      if (isAuthError(error) || isNetworkError(error)) {
+      if (isAuthError(error)) {
+        console.log('[DASHBOARD] Token expired - logging out');
+        try { await api.post('logout'); } catch {}
+        await signOut();
+        router.replace('/Login');
+        return;
+      }
+      if (isNetworkError(error)) {
         console.log('[DASHBOARD] API unavailable - falling back to cached data');
         const { branchId } = await resolveStaffBranch();
         const cachedStock = await loadCachedStockForBranch(branchId);

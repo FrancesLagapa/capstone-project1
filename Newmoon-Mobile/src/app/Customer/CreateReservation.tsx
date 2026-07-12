@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ interface MenuProduct {
   name: string;
   price: number | string;
   description?: string | null;
+  image?: string | null;
   product_stocks?: { branch_id: number | string; quantity: number }[];
   stocks?: { branch_id: number | string; quantity: number }[];
 }
@@ -48,7 +49,7 @@ export default function CreateReservationScreen() {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [products, setProducts] = useState<MenuProduct[]>([]);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
-  const [pickupDate, setPickupDate] = useState(getNext15Days()[0].full);
+  const [pickupDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -232,22 +233,19 @@ export default function CreateReservationScreen() {
               <Text className="text-gray-500 text-sm">{selectedBranch?.name}</Text>
             </View>
 
-            {/* Date picker */}
+            {/* Pickup Date */}
             <Text className="text-gray-700 text-sm font-semibold mb-2">Pickup Date</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-              {dateOptions.map((d) => (
-                <TouchableOpacity
-                  key={d.full}
-                  className={`px-4 py-2.5 rounded-xl mr-2 ${pickupDate === d.full ? 'bg-yellow-400' : 'bg-gray-100'}`}
-                  onPress={() => setPickupDate(d.full)}
-                  activeOpacity={0.7}
-                >
-                  <Text className={`text-sm font-medium ${pickupDate === d.full ? 'text-yellow-900' : 'text-gray-700'}`}>
-                    {d.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm flex-row items-center">
+              <Ionicons name="calendar" size={18} color="#F59E0B" />
+              <Text className="text-gray-900 font-semibold ml-2">Today</Text>
+            </View>
+
+            <View className="flex-row items-center bg-orange-50 rounded-xl px-3 py-2 mb-4 border border-orange-200">
+              <Ionicons name="warning" size={16} color="#EA580C" />
+              <Text className="text-xs text-orange-700 ml-1.5 flex-1">
+                Reservation not picked up will be automatically cancelled at 8PM.
+              </Text>
+            </View>
 
             {branchProducts.length === 0 ? (
               <View className="bg-white rounded-2xl p-8 items-center border border-gray-100">
@@ -257,9 +255,23 @@ export default function CreateReservationScreen() {
             ) : (
               branchProducts.map((product) => {
                 const inCart = selectedItems.find((i) => i.product_id === product.id);
+                const imageUrl = product.image
+                  ? `${(api.defaults?.baseURL ?? '').replace('/api', '')}/storage/${product.image}`
+                  : null;
                 return (
                   <View key={product.id} className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm">
                     <View className="flex-row items-center">
+                      {imageUrl ? (
+                        <Image
+                          source={{ uri: imageUrl }}
+                          className="w-16 h-16 rounded-xl mr-3"
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View className="w-16 h-16 rounded-xl bg-gray-100 items-center justify-center mr-3">
+                          <Ionicons name="image-outline" size={24} color="#D1D5DB" />
+                        </View>
+                      )}
                       <View className="flex-1 pr-3">
                         <Text className="text-gray-900 font-semibold">{product.name}</Text>
                         {product.description && (
@@ -323,9 +335,7 @@ export default function CreateReservationScreen() {
 
             <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm">
               <Text className="text-gray-500 text-xs uppercase font-semibold mb-1">Pickup Date</Text>
-              <Text className="text-gray-900 font-semibold">
-                {dateOptions.find((d) => d.full === pickupDate)?.label || pickupDate}
-              </Text>
+              <Text className="text-gray-900 font-semibold">Today</Text>
             </View>
 
             <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm">

@@ -168,11 +168,11 @@ export default function HistoryScreen() {
     const renderHistoryCard = (item: DeliveryHistory) => (
         <TouchableOpacity
             key={item.id}
-            className="bg-gray-900 rounded-xl p-4 mb-3 border border-gray-800"
+            className="bg-white rounded-xl p-4 mb-3 border border-gray-100 shadow-sm"
             onPress={() => {}}
         >
             <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-sm font-bold text-white">{item.orderNumber}</Text>
+                <Text className="text-sm font-bold text-gray-900">{item.orderNumber}</Text>
                 <View
                     className="px-3 py-1 rounded-full flex-row items-center"
                     style={{ backgroundColor: getStatusColor(item.status) + '20' }}
@@ -191,10 +191,10 @@ export default function HistoryScreen() {
                 </View>
             </View>
 
-            <Text className="text-base font-semibold text-white">{item.customerName}</Text>
+            <Text className="text-base font-semibold text-gray-900">{item.customerName}</Text>
             <View className="flex-row items-center mt-1">
                 <Ionicons name="location-outline" size={14} color="#9CA3AF" />
-                <Text className="text-xs text-gray-400 ml-1 flex-1" numberOfLines={1}>
+                <Text className="text-xs text-gray-500 ml-1 flex-1" numberOfLines={1}>
                     {item.customerAddress}
                 </Text>
             </View>
@@ -203,19 +203,19 @@ export default function HistoryScreen() {
                 {item.items}
             </Text>
 
-            <View className="flex-row justify-between items-center mt-3 pt-2 border-t border-gray-800">
+            <View className="flex-row justify-between items-center mt-3 pt-2 border-t border-gray-100">
                 <View className="flex-row items-center">
                     <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
-                    <Text className="text-xs text-gray-400 ml-1">
+                    <Text className="text-xs text-gray-500 ml-1">
                         {formatDate(item.date)}
                     </Text>
-                    <View className="w-0.5 h-3 bg-gray-700 mx-2" />
+                    <View className="w-0.5 h-3 bg-gray-300 mx-2" />
                     <Ionicons name="time-outline" size={14} color="#9CA3AF" />
-                    <Text className="text-xs text-gray-400 ml-1">{item.time}</Text>
+                    <Text className="text-xs text-gray-500 ml-1">{item.time}</Text>
                 </View>
                 {item.status === 'delivered' && (
-                    <View className="bg-green-900/30 px-2 py-1 rounded-full">
-                        <Text className="text-xs font-bold text-green-400">
+                    <View className="bg-yellow-50 px-2 py-1 rounded-full border border-yellow-200">
+                        <Text className="text-xs font-bold text-yellow-600">
                             +{formatCurrency(item.earnings)}
                         </Text>
                     </View>
@@ -239,9 +239,9 @@ export default function HistoryScreen() {
     ];
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <SafeAreaView className="flex-1 bg-gray-50">
             {/* Header */}
-            <View className="bg-gray-900 px-4 border-b border-gray-800">
+            <View className="bg-white px-4 border-b border-gray-100">
                 {/* Spacer to push everything down by 20 */}
                 <View style={{ height: 25 }} />
                 <View className="flex-row items-center justify-between pt-2 pb-4">
@@ -252,41 +252,41 @@ export default function HistoryScreen() {
                             activeOpacity={0.7}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
-                            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+                            <Ionicons name="arrow-back" size={24} color="#1F2937" />
                         </TouchableOpacity>
                         <View>
-                            <Text className="text-2xl font-bold text-white">History</Text>
-                            <Text className="text-sm text-gray-400 mt-1">
+                            <Text className="text-2xl font-bold text-gray-900">History</Text>
+                            <Text className="text-sm text-gray-500 mt-1">
                                 {filteredHistory.length} delivery{filteredHistory.length > 1 ? 's' : ''}
                             </Text>
                         </View>
                     </View>
                     <TouchableOpacity
-                        className="bg-gray-800 p-3 rounded-xl active:opacity-70"
+                        className="bg-gray-100 p-3 rounded-xl active:opacity-70"
                         activeOpacity={0.7}
                         onPress={onRefresh}
                     >
-                        <Ionicons name="refresh" size={20} color="#10B981" />
+                        <Ionicons name="refresh" size={20} color="#F59E0B" />
                     </TouchableOpacity>
                 </View>
 
                 {/* Stats Summary */}
                 <View className="flex-row justify-between gap-2">
-                    <View className="bg-gray-800 rounded-xl px-4 py-3 flex-1">
+                    <View className="bg-gray-50 rounded-xl px-4 py-3 flex-1 border border-gray-100">
                         <Text className="text-gray-400 text-xs font-medium uppercase tracking-wider">Deliveries</Text>
-                        <Text className="text-white text-xl font-bold mt-1">{getDeliveryCount()}</Text>
+                        <Text className="text-gray-900 text-xl font-bold mt-1">{getDeliveryCount()}</Text>
                     </View>
-                    <View className="bg-gray-800 rounded-xl px-4 py-3 flex-1">
+                    <View className="bg-gray-50 rounded-xl px-4 py-3 flex-1 border border-gray-100">
                         <Text className="text-gray-400 text-xs font-medium uppercase tracking-wider">Earnings</Text>
-                        <Text className="text-green-400 text-xl font-bold mt-1">{formatCurrency(getTotalEarnings())}</Text>
+                        <Text className="text-yellow-600 text-xl font-bold mt-1">{formatCurrency(getTotalEarnings())}</Text>
                     </View>
                 </View>
 
                 {/* Search Bar */}
-                <View className="flex-row items-center bg-gray-800 rounded-xl px-4 py-3 mt-4">
+                <View className="flex-row items-center bg-gray-100 rounded-xl px-4 py-3 mt-4">
                     <Ionicons name="search" size={18} color="#9CA3AF" />
                     <TextInput
-                        className="flex-1 ml-3 text-sm text-white"
+                        className="flex-1 ml-3 text-sm text-gray-900"
                         placeholder="Search by order # or customer..."
                         value={searchQuery}
                         onChangeText={setSearchQuery}
@@ -301,21 +301,21 @@ export default function HistoryScreen() {
             </View>
 
             {/* Period Filters */}
-            <View className="bg-gray-900 px-4 py-2 border-b border-gray-800">
+            <View className="bg-white px-4 py-2 border-b border-gray-100">
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View className="flex-row space-x-2">
                         {periodFilters.map((filter) => (
                             <TouchableOpacity
                                 key={filter.id}
                                 className={`px-4 py-2 rounded-full ${selectedPeriod === filter.id
-                                        ? 'bg-green-500'
-                                        : 'bg-gray-800'
+                                        ? 'bg-yellow-400'
+                                        : 'bg-gray-100'
                                     }`}
                                 onPress={() => setSelectedPeriod(filter.id)}
                             >
                                 <Text className={`text-sm font-medium ${selectedPeriod === filter.id
-                                        ? 'text-white'
-                                        : 'text-gray-400'
+                                        ? 'text-yellow-900'
+                                        : 'text-gray-600'
                                     }`}>
                                     {filter.label}
                                 </Text>
@@ -326,21 +326,21 @@ export default function HistoryScreen() {
             </View>
 
             {/* Status Filters */}
-            <View className="bg-gray-900 px-4 py-2 border-b border-gray-800">
+            <View className="bg-white px-4 py-2 border-b border-gray-100">
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View className="flex-row space-x-2">
                         {filters.map((filter) => (
                             <TouchableOpacity
                                 key={filter.id}
                                 className={`px-4 py-2 rounded-full ${selectedFilter === filter.id
-                                        ? 'bg-green-500'
-                                        : 'bg-gray-800'
+                                        ? 'bg-yellow-400'
+                                        : 'bg-gray-100'
                                     }`}
                                 onPress={() => setSelectedFilter(filter.id)}
                             >
                                 <Text className={`text-sm font-medium ${selectedFilter === filter.id
-                                        ? 'text-white'
-                                        : 'text-gray-400'
+                                        ? 'text-yellow-900'
+                                        : 'text-gray-600'
                                     }`}>
                                     {filter.label}
                                 </Text>
@@ -352,24 +352,24 @@ export default function HistoryScreen() {
 
             {/* History List */}
             <ScrollView
-                className="flex-1 px-4 pt-4"
+                className="flex-1 px-4 pt-4 bg-gray-50"
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
                         onRefresh={onRefresh}
-                        tintColor="#10B981"
-                        colors={['#10B981']}
+                        tintColor="#F59E0B"
+                        colors={['#F59E0B']}
                     />
                 }
             >
                 {loading ? (
                     <View className="items-center justify-center py-12">
-                        <ActivityIndicator size="large" color="#10B981" />
+                        <ActivityIndicator size="large" color="#F59E0B" />
                     </View>
                 ) : filteredHistory.length === 0 ? (
                     <View className="items-center justify-center py-12">
-                        <Ionicons name="time-outline" size={64} color="#374151" />
-                        <Text className="text-lg font-semibold text-gray-400 mt-4">
+                        <Ionicons name="time-outline" size={64} color="#D1D5DB" />
+                        <Text className="text-lg font-semibold text-gray-700 mt-4">
                             No History Found
                         </Text>
                         <Text className="text-sm text-gray-500 text-center mt-1">

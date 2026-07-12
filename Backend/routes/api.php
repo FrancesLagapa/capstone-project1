@@ -55,6 +55,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{id}/toggle-received', [ProductController::class, 'toggleReceived']);
     Route::get('/stock-batches', [ProductController::class, 'stockBatches']);
     
+    // Staff Reservations (must come before apiResource to avoid {staff} catching "reservations")
+    Route::get('/staff/reservations', [ReservationController::class, 'staffIndex']);
+    Route::post('/staff/reservations/{id}/picked-up', [ReservationController::class, 'staffMarkPickedUp']);
+    Route::post('/staff/reservations/{id}/complete', [ReservationController::class, 'staffMarkComplete']);
+
     // Staff (must come before apiResource to avoid {staff} catching "orders")
     Route::get('/staff/orders', [OrderController::class, 'staffIndex']);
     Route::post('/staff/orders/{id}/status', [OrderController::class, 'staffUpdateStatus']);

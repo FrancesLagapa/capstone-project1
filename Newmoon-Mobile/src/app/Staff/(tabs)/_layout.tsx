@@ -52,6 +52,20 @@ export default function StaffTabsLayout() {
             />
 
             <Tabs.Screen
+                name="Reservations"
+                options={{
+                    title: 'Reserve',
+                    tabBarIcon: ({ color, focused }) => (
+                        <MaterialIcons
+                            name={focused ? 'event' : 'event-outline'}
+                            size={24}
+                            color={color}
+                        />
+                    ),
+                }}
+            />
+
+            <Tabs.Screen
                 name="Attendance"
                 options={{
                     title: 'Attendance',

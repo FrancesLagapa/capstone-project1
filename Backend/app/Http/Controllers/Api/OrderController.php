@@ -236,10 +236,13 @@ class OrderController extends Controller
     public function riderIndex(Request $request)
     {
         $user = $request->user();
+        $branchId = $user->current_branch_id;
 
         $orders = Order::with(['user', 'items.product', 'branch'])
-            ->where(function ($q) use ($user) {
-                $q->where('status', 'ready')->whereNull('rider_id');
+            ->where(function ($q) use ($user, $branchId) {
+                $q->where('status', 'ready')
+                  ->whereNull('rider_id')
+                  ->when($branchId, fn($wq) => $wq->where('branch_id', $branchId));
                 $q->orWhere('rider_id', $user->id);
             })
             ->orderBy('created_at', 'desc')
